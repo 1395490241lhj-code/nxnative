@@ -1023,6 +1023,8 @@ def build_shaders(py, repo, sh, xlate, env, logs, g, provisional=False, split_ke
     if provisional:
         PROG.set(step='c1 guard')
         run([py, repo / 'dm/gfx/tools/c1_guard.py', sh / 'cache' / f'b-{chain}', g.table('c1_full.tsv')], logs / 'c1_guard.log', env=env)   # shaders whose c1 reads are not proven bounded
+        PROG.set(step='uniform read extents')
+        run([py, repo / 'dm/gfx/tools/cb_extent.py', sh / 'cache' / f'b-{chain}', g.table('c1_full.tsv').with_name('cb_extent.tsv')], logs / 'cb_extent.log', env=env)   # how far each shader reads into its uniform blocks
     n = sum(1 for _ in libs.glob('*_b.metallib')) if libs.is_dir() else 0
     if n == 0: raise BuildError(f'no iOS shader libraries in {libs}')
     say(f'{n} iOS shader libraries ({libs})')
