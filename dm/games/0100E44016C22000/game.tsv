@@ -1,4 +1,4 @@
-# Game profile of Patrick's Parabox (Switch, update 1.0.1 = v65536). Plays on the Mac
+# Game profile of Patrick's Parabox (Switch, update 1.0.1 = v65536). Plays on the Mac and on the iPhone
 # Format: see dm/games/README.md
 # Unity 2020.3.30f1 (IL2CPP), SDK 13.3.7: the shaders are Unity's built-in Shader objects in Data/Resources (unity default resources, unity_builtin_extra), which carry no type trees and no bundle
 # lends one; unityfs.py has Unity 2020.3's Shader layout (KNOWN_TREES, the tree of Fire Emblem Engage's bundles). The game's only font, Jost, falls back to the shared fonts for Japanese, Korean
