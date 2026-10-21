@@ -21,6 +21,7 @@
 #   · SDF (Capcom's RE Engine, Monster Hunter Rise): shader definitions inside the PAK archives (KPKA, entries zstd / deflate compressed), only the newest copy of each path, see kpka_jobs and sdf_shaders
 #   · Trinity packs (Game Freak, Pokémon Legends: Z-A): BNSH inside the files of arc/data.trpfs (Oodle Mermaid, decoded by the game's own decoder in the Mac host), see trpfs_jobs and trinity_shaders
 #   · SPK (Capcom's MT Framework, The Great Ace Attorney Chronicles): the shader package inside an ARC archive (zlib entries), code area + control section per shader, see mtarc_members and mtspk_shaders
+#   · BEA (NintendoWare Bezel Engine archives, Big Brain Academy: Brain vs. Brain): BNSH in the .bfsha entries of the archives (zstd entries), see bea_members
 # Code area: 0x30 header + (graphics) 0x50 SPH + instructions; header magic 0x12345678 for graphics, 0x12345679 for compute. The control section starts with 0x98761234, +0x704 = code area length,
 #   +0x700 = start of the c1 constant segment within the code area; for compute +0x748 thread group xyz (u32 ×3), +0x754 shared memory bytes (checked one by one against PC reflection on D2R's 22 compute shaders).
 # Stage: BNSH uses the stage slot; BAHS uses bits 10..13 of SPH word 0 (1 vertex 2 hull 3 domain 4 geometry 5 pixel), and a compute header means compute.
@@ -342,6 +343,25 @@ def mtarc_shaders(d, label, out):
     for path, m in mtarc_members(d, label):
         if m[:4] == MTSPK: out.extend(mtspk_shaders(m, f'{label}#{path}'))
 
+SCNE, ZSTD_MAGIC = b'SCNE', bytes.fromhex('28b52ffd')
+def bea_members(d, label):
+    """NintendoWare Bezel Engine archive ('.bea', magic 'SCNE', a NintendoWare binary file of version 0x10100; Big Brain Academy: Brain vs. Brain keeps nearly all of RomFS in 603 of them):
+    +0x20 u64 entry count, +0x28 u64 offset of the entry pointer array (u64 each), each pointing at a 0x30-byte 'ASST' entry {+0x10 u16 kind, u16 alignment shift, u32 stored length,
+    u32 length, +0x20 u64 data offset, +0x28 u64 name offset (u16 length + the path)}. Every entry of the game's 7,665 is one zstd frame (kind 2, and 258 for the one sound project),
+    even the two whose stored length equals their length, so the frame magic decides. → (path, data) of each entry"""
+    n, arr = struct.unpack_from('<QQ', d, 0x20)
+    zstd = None
+    for i in range(n):
+        o = struct.unpack_from('<Q', d, arr + 8 * i)[0]
+        if d[o:o + 4] != b'ASST': red(f'{label}: entry {i} @{o:#x} is not an ASST entry')
+        csz, usz, off, nm = struct.unpack_from('<II4xQQ', d, o + 0x14)
+        path = d[nm + 2:nm + 2 + struct.unpack_from('<H', d, nm)[0]].decode('utf-8', 'replace')
+        data = d[off:off + csz]
+        if data[:4] == ZSTD_MAGIC:
+            zstd = zstd or zstd_mod(); data = zstd.decompress(data)
+        if len(data) != usz: red(f'{label}/{path}: {len(data):#x} bytes, the entry says {usz:#x}')
+        yield path, data
+
 ONEPACK = b'ONEPACK\0'
 def fb_field(d, t, i):
     """FlatBuffers: absolute offset of field i of the table at t, None when the field is absent"""
@@ -633,6 +653,9 @@ def scan_file(args):
         return rel, uniq_keys(found), var_pairs(found), trees
     if head[:4] == MTARC:   # an MT Framework archive (mtarc_members): its shader package
         mtarc_shaders(open(path, 'rb').read(), '/' + rel, found)
+        return rel, uniq_keys(found), var_pairs(found), trees
+    if head[:4] == SCNE:   # a Bezel Engine archive (bea_members): each entry scanned as a file of its own (the shaders are BNSH in its .bfsha entries)
+        for nm, m in bea_members(open(path, 'rb').read(), '/' + rel): scan_blob(m, f'/{rel}/{nm}', found)
         return rel, uniq_keys(found), var_pairs(found), trees
     d = unzs(path) if path.endswith('.zs') else open(path, 'rb').read()
     if d[:4] == b'Yaz0': d = yaz0(d)

@@ -209,4 +209,7 @@ void crash_install(void) {
         pthread_detach(th);
     }
     sigaction(SIGSEGV, &sa, 0); sigaction(SIGBUS, &sa, 0); sigaction(SIGILL, &sa, 0); sigaction(SIGTRAP, &sa, 0);
+    // abort() too (an assertion or an uncaught exception in the host or a framework): Big Brain Academy: Brain vs. Brain died once with SIGABRT 11 minutes into a run with nothing
+    // in the log and no crash report, so where it came from was lost
+    sigaction(SIGABRT, &sa, 0);
 }

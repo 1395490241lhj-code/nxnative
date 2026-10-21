@@ -46,6 +46,7 @@ HLE_FORCE("_ZN5movie9Extractor13SetDataSourceEPKc", "movie demuxer: the host doe
 #define MD_NOUT 8                // output slots
 #define MD_NO_INPUT 0x1011       // SDK: no free input
 #define MD_NO_OUTPUT 0x100e      // SDK: no output ready
+#define MD_STALE_NS 250000000ull // how long an input the client held across a flush stays withheld (h_movie_AcqIn)
 #define MD_FMT_NV12 4
 #define MD_FMT_ABGR 3            // 4-byte RGBA (memory order R G B A), only with the native texture mode
 #define MD_MODE_TEX 2            // native texture mode: the decoder writes frames into the client's NVN texture
@@ -63,6 +64,7 @@ typedef struct {
     void *ev[4];                                 // a copy of DecoderEvents: {input, output, format, error} EventType*. The client's struct need not stay alive (by Metroid Dread's second movie it had been overwritten and Start crashed signalling), so it is copied at registration
     int w, h, fmt_sent, started;
     uint8_t *in[MD_NIN]; int infree[MD_NIN], ninfree;                     // queue of free input indices
+    int inown[MD_NIN]; uint64_t instale[MD_NIN];                          // inown: acquired by the client and not sent yet; instale: when a Flush / Stop found it held (the client may still send it), 0 if not
     struct { int used, pic; int64_t pts; uint32_t flags; uint8_t *frm; size_t cap, bytes; } out[MD_NOUT];   // pic: frm holds a decoded picture (audio: bytes of PCM); cap: bytes in frm
     int outq[MD_NOUT], noutq;                                             // queue of ready output indices
     struct { int in, off, size; int64_t pts; uint32_t flags; } pend[MD_NIN]; int npend;   // input packets waiting to be decoded (in arrival order)
@@ -117,13 +119,15 @@ void *dm_guest_thread_spawn(void (*fn)(void *), void *arg, int prio, size_t stac
 static pthread_mutex_t g_dfmu = PTHREAD_MUTEX_INITIALIZER; static pthread_cond_t g_dfcv = PTHREAD_COND_INITIALIZER;
 static struct { void *d; int ev; uint64_t due; } g_dfq[64]; static int g_ndfq, g_dfthr;
 static void md_defer_body(void *arg);
-static void md_defer(void *d, int ev) {
+static void md_defer_at(void *d, int ev, uint64_t due) {
     pthread_mutex_lock(&g_dfmu);
     if (!g_dfthr) { g_dfthr = 1; dm_guest_thread_spawn(md_defer_body, NULL, 16, 64 << 10); }
-    if (g_ndfq < 64) g_dfq[g_ndfq++] = (__typeof__(g_dfq[0])){d, ev, now_ns() + 2000000};
+    for (int i = 0; i < g_ndfq; i++) if (g_dfq[i].d == d && g_dfq[i].ev == ev && g_dfq[i].due <= due) { pthread_mutex_unlock(&g_dfmu); return; }   // already due by then
+    if (g_ndfq < 64) g_dfq[g_ndfq++] = (__typeof__(g_dfq[0])){d, ev, due};
     else LOG("[RED] movie: deferred event queue full, dropping one");
     pthread_cond_signal(&g_dfcv); pthread_mutex_unlock(&g_dfmu);
 }
+static void md_defer(void *d, int ev) { md_defer_at(d, ev, now_ns() + 2000000); }
 static void md_defer_drop(void *d) {
     pthread_mutex_lock(&g_dfmu);
     int n = 0; for (int i = 0; i < g_ndfq; i++) if (g_dfq[i].d != d) g_dfq[n++] = g_dfq[i];
@@ -162,8 +166,10 @@ static void movie_ring_wait(const uint64_t *regs) {
     uint64_t dt = now_ns() - t0; static _Atomic int nlong; if (dt > 50000000ull && nlong++ < 8) LOG("[movie] waited %.1f ms on the player request ring", dt / 1e6);
 }
 __attribute__((constructor)) static void movie_ring_gates(void) { gate_obs_set(OBS_MOVIE_RING_LINK, movie_ring_wait); gate_obs_set(OBS_MOVIE_RING_UNLINK, movie_ring_wait); }
-// log the first 12 calls one by one, then every 2^k-th
-#define MD_TRACE(d, slot, ...) do { unsigned long n_ = ++(d)->ncall[slot]; if (n_ <= 12 || !(n_ & (n_ - 1))) LOG("[movie] " __VA_ARGS__); } while (0)
+// log the first 12 calls one by one, then every 2^k-th (DM_MOVIE_TRACE=1: every call, with the calling thread)
+static int md_trace_all(void) { static int on = -1; if (on < 0) on = getenv("DM_MOVIE_TRACE") != NULL; return on; }
+#define MD_TRACE(d, slot, fmt, ...) do { unsigned long n_ = ++(d)->ncall[slot]; if (md_trace_all()) LOG("[movie] [%p] " fmt, (void *)pthread_self(), ##__VA_ARGS__); \
+                                         else if (n_ <= 12 || !(n_ & (n_ - 1))) LOG("[movie] " fmt, ##__VA_ARGS__); } while (0)
 
 // VP9 key frame uncompressed header → width and height (VP9 spec 6.2: frame_marker, profile, show_existing_frame, frame_type, show_frame, error_resilient_mode, sync code, color config, frame_size)
 static int vp9_size(const uint8_t *p, int n, int *w, int *h) {
@@ -460,7 +466,7 @@ static void md_free(void **self) {
     mdec_t *d = md_of(self); if (!d) return;
     md_defer_drop(d);
     self[1] = NULL;
-    LOG("[movie] decoder %p destroyed: %lu packets in, %lu frames out; VP9 decoded %llu packets, average %.2f ms per packet, longest %.2f ms", (void *)self, d->ncall[7], d->ncall[8],
+    LOG("[movie] decoder %p destroyed: %lu packets in, %lu frames out; decoded %llu packets, average %.2f ms per packet, longest %.2f ms", (void *)self, d->ncall[7], d->ncall[8],
         (unsigned long long)d->dec_n, d->dec_n ? d->dec_ns / 1e6 / d->dec_n : 0.0, d->dec_max / 1e6);
     pthread_mutex_lock(&d->dmu); md_job(d, MDJ_QUIT); pthread_mutex_unlock(&d->dmu);
     pthread_join(d->wk, NULL);
@@ -520,9 +526,13 @@ static void md_reset(mdec_t *d, int close) {
     if (close) md_job(d, MDJ_CLOSE);
     if (d->avc) mavc_drop(d->avc);   // H.264 pictures waiting for their turn belong to the old position
     pthread_mutex_lock(&d->mu);
-    for (int i = 0; i < MD_NIN; i++) d->infree[i] = i;
+    // Every input goes back to the free list, as with MediaCodec, but one the client holds may still be sent: Big Brain Academy: Brain vs. Brain's event thread acquires inputs while its
+    // control thread flushes to loop an activity preview, and sends them after the flush (SendInputBufferForDecode claims them back). Those are withheld for a while (h_movie_AcqIn)
+    uint64_t now = now_ns();
+    for (int i = 0; i < MD_NIN; i++) { d->infree[i] = i; d->instale[i] = d->inown[i] ? now : 0; d->inown[i] = 0; }
     d->ninfree = MD_NIN; d->noutq = 0; d->npend = 0; d->avc_drain = 0;
-    for (int i = 0; i < MD_NOUT; i++) d->out[i].used = d->out[i].pic = 0;
+    // a flush keeps each slot's last picture: the same game reads an output it acquired before the flush right after it (a black frame in the loop otherwise)
+    for (int i = 0; i < MD_NOUT; i++) { d->out[i].used = 0; if (close) d->out[i].pic = 0; }
     pthread_mutex_unlock(&d->mu);
     pthread_mutex_unlock(&d->dmu);
 }
@@ -552,8 +562,18 @@ HLE_FORCE("_ZN5movie7Decoder23AcquireInputBufferIndexEPiS1_", "movie decoder: ac
     // after Stop returned every input index, a late input event could still get one, the wrapper was destroyed afterwards, and the worker thread (main+0x223bd4) read the freed object and crashed
     pthread_mutex_lock(&d->mu);
     int r = MD_NO_INPUT; *idx = -1; *left = 0;
-    if (d->ninfree && d->started) { *idx = d->infree[0]; memmove(d->infree, d->infree + 1, --d->ninfree * sizeof *d->infree); *left = d->ninfree; r = 0; }
+    // An input the client held across a flush (md_reset) is not handed out again for MD_STALE_NS unless the client sends it first: handing it out while the client still meant to send
+    // it gave the client one buffer twice (a packet dropped as sent twice, VideoToolbox -12909). A client that abandons it gets it back after that time instead of losing a buffer
+    uint64_t now = now_ns(), wake = 0; int k = -1;
+    for (int j = 0; j < d->ninfree && k < 0; j++) { int x = d->infree[j]; if (!d->instale[x] || now - d->instale[x] >= MD_STALE_NS) k = j; }
+    if (k >= 0 && d->started) {
+        *idx = d->infree[k]; memmove(d->infree + k, d->infree + k + 1, (size_t)(--d->ninfree - k) * sizeof *d->infree); *left = d->ninfree; r = 0;
+        d->inown[*idx] = 1; d->instale[*idx] = 0;
+    } else if (d->ninfree && d->started) {   // only withheld inputs are free: announce input when the first of them comes back
+        wake = UINT64_MAX; for (int j = 0; j < d->ninfree; j++) { uint64_t t = d->instale[d->infree[j]] + MD_STALE_NS; if (t < wake) wake = t; }
+    }
     pthread_mutex_unlock(&d->mu);
+    if (wake) md_defer_at(d, 0, wake);   // after mu: Stop takes the deferred queue's lock before mu
     MD_TRACE(d, 6, "AcquireInputBufferIndex → %#x index %d left %d", r, *idx, *left);
     return r;
 }
@@ -568,6 +588,17 @@ HLE_FORCE("_ZN5movie7Decoder24SendInputBufferForDecodeEiiilj", "movie decoder: s
     mdec_t *d = md_of(self); if (!d) return 0x1000;
     if (i < 0 || i >= MD_NIN || off < 0 || size < 0 || (uint32_t)off + (uint32_t)size > MD_INCAP) return 0x100b;
     pthread_mutex_lock(&d->mu);
+    // An index the client acquired before a Flush and sends after it (Big Brain Academy: Brain vs. Brain loops its activity previews this way): the flush put it back in the free list,
+    // so it is claimed from there now. Before, it could be handed out a second time, two packets shared one buffer (VideoToolbox -12909 on the overwritten one) and the fifth pending
+    // packet wrote past pend[] into npend and dmu (the process died destroying dmu, 2 runs in 5)
+    for (int k = 0; k < d->ninfree; k++) if (d->infree[k] == i) {
+        memmove(d->infree + k, d->infree + k + 1, (size_t)(--d->ninfree - k) * sizeof *d->infree);
+        static int once; if (!once++) LOG("[movie] input index %d sent after a flush returned it: claimed from the free list (first case)", i);
+        break;
+    }
+    d->inown[i] = d->instale[i] = 0;
+    for (int k = 0; k < d->npend; k++) if (d->pend[k].in == i) { pthread_mutex_unlock(&d->mu); if (!d->red_dec++) LOG("[RED] movie: input index %d sent twice, the second packet is dropped (first case)", i); return 0x100b; }
+    if (d->npend == MD_NIN) { pthread_mutex_unlock(&d->mu); if (!d->red_dec++) LOG("[RED] movie: more packets pending than input buffers, one dropped (first case)"); return 0x100b; }
     int fmt_now = 0;
     if (d->type == MD_TYPE_VP9 && !d->w && size > 0 && vp9_size(d->in[i] + off, size, &d->w, &d->h)) LOG("[movie] VP9 key frame: %d×%d", d->w, d->h);
     if (!d->fmt_sent) { d->fmt_sent = 1; fmt_now = 1; if (!d->w && !MD_AUDIO(d)) { d->w = 1920; d->h = 1080; } }   // the size is fixed from here on (slots are allocated by it)
@@ -623,7 +654,7 @@ HLE_FORCE("_ZN5movie7Decoder19GetOutputBufferSizeEPiS1_", "movie decoder: output
     MD_TRACE(d, 11, "GetOutputBufferSize → %d (%d×%d)", *size, w, h);
     return 0;
 }
-// Write one frame into the client buffer: the decoded picture, or a black frame (video range Y 16, UV 128) when there is none (end-of-stream packet, AVC / VP8)
+// Write one frame into the client buffer: the decoded picture, or a black frame (video range Y 16, UV 128) when there is none (end-of-stream packet, AVC / VP8); a client texture keeps its last frame then
 // Native texture mode: the client Buffer's data pointer is the NVNtexture object itself (capacity given as 8; Metroid Dread main+0x226c98: the texture object embedded at +0x18 of a texture pool entry), plus the NVN device and a sync object (SetNvnDev / SetNvnSync).
 // In the SDK, NnCodecConsumer draws the decoded frame into that texture on the GPU and signals the sync when done; the host writes the texture storage on the CPU (as WriteTexels; the replay layer re-uploads dirty pages), and the sync counts as done once written
 int nvn_host_write_texture(const void *nvntex, const void *src, int w, int h, size_t row, int *tw, int *th);
@@ -636,14 +667,11 @@ static int md_out_tex(mdec_t *d, int i, void *buf) {
     if (f < 0) { LOG("[RED] movie: buffer data %p in native-texture mode is not a texture object", tex); return 0x100b; }
     if (f != 0x25 && f != 0x38 && f != 0x6d && f != 0x37 && !d->red_img++) LOG("[RED] movie: client texture format %#x is not RGBA8 / RGBX8 (sRGB included), writing in RGBA byte order", f);   // Metroid Dread: RGBX8_SRGB
     int w = d->w < tw ? d->w : tw, h = d->h < th ? d->h : th;
+    // No picture (an end-of-stream output): nothing is drawn and the texture keeps the last frame, as the SDK's consumer has no frame to draw. A black frame here flashed at the
+    // end of every loop of Big Brain Academy: Brain vs. Brain's activity previews, which read the end-of-stream output's buffer
     if (d->out[i].pic && d->out[i].frm) nvn_host_write_texture(tex, d->out[i].frm, w, h, (size_t)d->w * 4, NULL, NULL);
-    else {   // no picture: a black frame
-        size_t n = (size_t)tw * th; uint32_t *k = malloc(n * 4); if (!k) die("movie: black frame allocation failed");
-        for (size_t j = 0; j < n; j++) k[j] = 0xff000000u;
-        nvn_host_write_texture(tex, k, tw, th, (size_t)tw * 4, NULL, NULL); free(k);
-    }
     void *sy = G.nvn_sync(buf); if (sy && nvn_host_signal_sync(sy) && !d->red_dec++) LOG("[RED] movie: the buffer's sync object %p is not an NVNsync", sy);
-    MD_TRACE(d, 12, "GetOutputBuffer index %d → texture %p (%d×%d format %#x)%s", i, tex, tw, th, f, d->out[i].pic ? "" : " (black frame)");
+    MD_TRACE(d, 12, "GetOutputBuffer index %d → texture %p (%d×%d format %#x)%s", i, tex, tw, th, f, d->out[i].pic ? "" : " (no picture: the texture keeps its last frame)");
     return 0;
 }
 HLE_FORCE("_ZN5movie7Decoder15GetOutputBufferEiPNS_6BufferE", "movie decoder: get a frame", int, h_movie_GetOut, void **self, int i, void *buf) {

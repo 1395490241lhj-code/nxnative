@@ -627,6 +627,11 @@ HLE_FORCE("_ZN2nn2fs25CleanDirectoryRecursivelyEPKc", "fsp-srv → recursively d
 }
 // file data cache (a global read cache in the fs process): the host reads through the page cache and leaves the buffer unused
 HLE_FORCE("_ZN2nn2fs25EnableGlobalFileDataCacheEPvm", "fsp-srv global read cache; unused by the host", void, h_fs_EnableGlobalCache, void *buf, size_t sz) { (void)buf; (void)sz; }
+// the same cache for one file (SDK 11, Big Brain Academy: Brain vs. Brain; the game does not read the result)
+HLE_FORCE("_ZN2nn2fs29EnableIndividualFileDataCacheEPKcPvm", "fsp-srv read cache for one file; unused by the host", Result, h_fs_EnableFileCache, const char *path, void *buf, size_t sz) {
+    (void)path; (void)buf; (void)sz; return RES_OK;
+}
+HLE_FORCE("_ZN2nn2fs30DisableIndividualFileDataCacheEPKc", "fsp-srv read cache for one file; unused by the host", void, h_fs_DisableFileCache, const char *path) { (void)path; }
 // SDK 11 (Metroid Dread): delete an empty directory
 HLE_FORCE("_ZN2nn2fs15DeleteDirectoryEPKc", "fsp-srv → rmdir(2) (the directory must be empty)", Result, h_fs_DeleteDir, const char *path) {
     HP(path); RW(); return rmdir(hp) ? err_res("rmdir", hp) : RES_OK;
