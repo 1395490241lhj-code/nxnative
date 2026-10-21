@@ -63,7 +63,8 @@ All of these are tested on an iPhone and playable:
 | ![Unicorn Overlord](docs/images/unicorn-overlord.jpg)<br>Unicorn Overlord | ![Rhythm Heaven Groove](docs/images/rhythm-heaven-groove.jpg)<br>Rhythm Heaven Groove |
 | ![Octopath Traveler 0](docs/images/octopath-traveler-0.jpg)<br>Octopath Traveler 0 | ![Pokémon Legends: Z-A](docs/images/pokemon-legends-z-a.jpg)<br>Pokémon Legends: Z-A |
 | ![Cuphead](docs/images/cuphead.jpg)<br>Cuphead | ![Super Mario Galaxy 2](docs/images/super-mario-galaxy-2.jpg)<br>Super Mario Galaxy 2 |
-| ![FINAL FANTASY TACTICS - The Ivalice Chronicles](docs/images/final-fantasy-tactics.jpg)<br>FINAL FANTASY TACTICS - The Ivalice Chronicles | |
+| ![FINAL FANTASY TACTICS - The Ivalice Chronicles](docs/images/final-fantasy-tactics.jpg)<br>FINAL FANTASY TACTICS - The Ivalice Chronicles | ![Absolum](docs/images/absolum.jpg)<br>Absolum |
+| ![Captain Toad: Treasure Tracker](docs/images/captain-toad-treasure-tracker.jpg)<br>Captain Toad: Treasure Tracker | |
 
 Needs iOS / iPadOS 26 or later on an iPhone 15 Pro or newer (A17 Pro chip or later) or an iPad with an M1 chip or later: the games' textures are BC-compressed, and older iPhones can't read that format. Other games aren't supported yet. For them the script writes a survey and still tries its best to pack an IPA, guessing the game's settings; such an IPA may not start.
 
