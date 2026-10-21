@@ -162,7 +162,15 @@ static OSStatus au_create(aout *a) {
     if (st) { AudioComponentInstanceDispose(a->au); a->au = NULL; }
     return st;
 }
-static void au_open(aout *a) { OSStatus st = au_create(a); if (st) die("AudioUnit setup failed (status %d)", (int)st); }
+// OpenAudioOut runs on the game's thread, and creating the AudioUnit takes about 24 KB of stack (measured on the Mac: component lookup, instance, Initialize), more than some game threads have
+// left (Super Mario 3D World's save thread has 8 KB in all; Pokémon: Let's Go overflowed here at startup, PR #36). So it runs on a host thread, once per AudioOut. Not HLE_FORCE_BIG:
+// the open hooks log the game's call site through __builtin_return_address(0), which under the big-stack entry would be the trampoline
+static void *au_create_th(void *a) { return (void *)(intptr_t)au_create(a); }
+static void au_open(aout *a) {
+    pthread_t t; void *r = NULL;
+    if (pthread_create(&t, NULL, au_create_th, a) || pthread_join(t, &r)) die("AudioUnit setup: cannot start its thread");
+    OSStatus st = (OSStatus)(intptr_t)r; if (st) die("AudioUnit setup failed (status %d)", (int)st);
+}
 // Silent sink: consumes in real time at 48 kHz every 5 ms. When more than 100 ms behind (iOS suspended the whole process in the background, SIGSTOP on the Mac), restart the count from now and do not make up the missed time --
 // making it up would pull hundreds of times in one go (seconds' worth), releasing all of the game's buffers and logging hundreds of underruns; a suspended console does not play that stretch either
 static void *null_sink(void *p) {
