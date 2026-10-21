@@ -343,7 +343,7 @@ The game's own work and its frame rate stay as they are; the host avoids work of
 - **Mac input:** a fresh save reaches the first battle turn at about frame 21,000 with `DM_KEYS="22:A*60/2,150:Plus,152:X~2.5,165:Plus,167:X~2.5,175:A*70/2"` (A through the settings and the birthday, then + and a held X skip each part of the opening).
 
 **Absolum (`0100A83022A22000`)**
-- **Status:** brought up on the Mac: the logo movie, the licence agreement, the main menu, the campfire character select, the intro and the first level (the "Strike / Skill" tutorial and the cave after it), at 60 fps with real sound and saves; about 2.5 GB resident. Not yet run on an iPhone.
+- **Status:** brought up on the Mac: the logo movie, the licence agreement, the main menu, the campfire character select, the intro and the first level (the "Strike / Skill" tutorial and the cave after it), at 60 fps with real sound and saves; about 2.5 GB resident. Playable on an iPhone.
 - **Engine:** FNA (XNA 4 in C#) compiled with .NET NativeAOT (its own GC, regions enabled), SDL3, FNA3D's NVN driver, Wwise, SDK 18.3.2, update 1.1.1 (v393216). NVIDIA's OpenGL and Vulkan drivers (`subsdk1`, `subsdk0`) are not loaded; `subsdk2` is the movie module (H.264 logos). Epic Online Services comes as an NRO the host does not load; the game plays offline without it.
 - **Code:** `main` starts its text with 1.7 MB of data, which the rewriter now leaves alone (`dm/tools/nso_code.py`).
 - **Shaders:** 162 GLSLC outputs in `shaders.nx.bin`. The picture is flipped by a viewport swizzle, which the host now applies ([04](agents/04-graphics.md)).
@@ -356,7 +356,7 @@ The game's own work and its frame rate stay as they are; the host avoids work of
   - the first save, the Episode 1 book and Plucky Pass Beginnings;
   - the Special Episode's book (add-on content 1).
 
-  It runs at 60 fps with no red line. Three minutes in a course: about 950 MB resident and 690 MB of Metal allocations, flat. Not tested on an iPhone yet.
+  It runs at 60 fps with no red line. Three minutes in a course: about 950 MB resident and 690 MB of Metal allocations, flat. Playable on an iPhone.
 - **Engine:** Nintendo EPD Tokyo's engine (the `al` library over sead / agl, as Super Mario 3D World and Super Mario Odyssey) on SDK 8.2.0, update 1.4.2 (v393216). Its `sdk` is the build Link's Awakening 1.1.0 runs. `main` exports its symbols (48,804 defined), so `sdis.py --find` names most functions.
 - **Shaders:** 7,258, all with Mario's binding layout. The fin fur geometry shader does not build, as in 3D World. `main` imports `glslcCompile` but no module defines it, so nothing is compiled at run time ([04](agents/04-graphics.md)).
 - **Graphics:** agl's post-effect program samples its own attachment, as in 3D World, and here the 16x16 magenta blocks showed on the Mac too: the profile's `feedback_snap`.

@@ -1,4 +1,4 @@
-# Game profile of Absolum (Switch, base game v0 + update 1.1.1 = v393216). Bring-up in progress
+# Game profile of Absolum (Switch, base game v0 + update 1.1.1 = v393216). Plays on the Mac and on the iPhone
 # Format: see dm/games/README.md
 # FNA (XNA 4 reimplemented in C#) compiled with .NET NativeAOT (NativeAOT-NX), SDL3, FNA3D's NVN driver (FNA3D_Driver_NVN.cpp), Wwise, SDK 18.3.2.
 # The shaders are GLSLC outputs in rom:/shaders.nx.bin; the effects (.xnb) carry D3D9 bytecode that MOJOSHADER parses for the parameters. Epic Online Services comes as an NRO (nro/EOSSDK-Switch-Shipping.nro)
