@@ -414,6 +414,15 @@ The game's own work and its frame rate stay as they are; the host avoids work of
 - **Memory:** no system resource; the game sets a 3.14 GB heap (pool − used) in the 4 GB layout. It creates 1.5 GB of NVN memory pools in its first 25 s (384 + 256 MB CPU-uncached, a 320 MB physical pool for sparse mappings, 192 + 64 MB of render targets), so about 1.3 GB is resident at the title and 1.5 GB in the first activity. Over 15 minutes of activities it rose to 1.86 GB in steps as each new activity loaded (pools 217 → 292, textures 444 → 1,173), flat in between.
 - **Mac input:** from a fresh save, `DM_KEYS="f1900:A,f2400:A*9/150,f3800:Right*14/150,f3875:A*14/150,f6000:A*4/150,f6900:Down*5/60,f7250:A,f7500:A*17/150,f10050:A"` enrolls a student (birthday 01/01/2000, the default appearance, no online features) and starts Whack Match from Practice at about frame 10,050 (`<work>/run/enroll.sh`). In handheld mode `T<x>x<y>` taps work too: `f1900:T0.5x0.88` taps Start on the title.
 
+**Patrick's Parabox (`0100E44016C22000`)**
+- **Status:** brought up on the Mac: the first-boot language menu (all ten languages drawn), the title, the hub, Intro 1 solved and Intro 2 with undo, reset and the menu, at 60 fps with music and saves (progress kept across a restart); no red line, about 0.42–0.48 GB resident, flat over four minutes.
+- **Engine:** Unity 2020.3.30f1 IL2CPP with FMOD on SDK 13.3.7, update 1.0.1 (v65536); `subsdk0` is the movie module, which the game never uses.
+- **Shaders:** 486, all Unity built-ins (`Data/Resources/unity default resources`, `unity_builtin_extra`) plus the player's 11 GLSLC outputs in `main`. There are no bundles, so `unityfs.py` has Unity 2020.3's `Shader` layout written out (`KNOWN_TREES`: the type tree of Engage's bundles, the same hash). The built-in VR blit's geometry shader does not build ([04](agents/04-graphics.md)). The whole game draws with three shader pairs.
+- **Fonts:** its only font, Jost, falls back to the shared fonts for Japanese, Korean and Chinese text, which Unity's player opens with FreeType straight from `GetSharedFontAddress`; the host gives a game that imports no `ScalableFontEngineHelper::Decode` the TTF itself ([03](agents/03-bringup.md)).
+- **Memory:** the NPDM declares 16 MB of system resource (`sys_resource`), so virtual address memory as in Ace Attorney Investigations Collection and Brain Memory Training Academy: `nninitStartup` gives StandardAllocator pool − used, which needs the node area cut on this `sdk` build (`patch_nso.py`); their 1 GB pool and 5 GB block. The alias region is mapped up to +1.5 GB with 0.27 GB in use.
+- **Input:** controller only (stick or D-pad to move, A redo, B undo, X reset, + menu): it stays docked at 1920x1080 with the 2D pad layout.
+- **Mac input:** a fresh save solves Intro 1 with `DM_KEYS="f700:A,f1000:A,f1300:A,f1600:A,f2400:Right,f2450:Down,f2500:Down,f2550:Down,f2600:Down,f3000:Up*3/30,f3090:Right*3/30,f3180:Down*2/30,f3240:Up*3/30,f3330:Left*4/30"` (English, the title, into Intro 1 from the hub at about frame 2,700, solved and on to Intro 2 at about frame 3,500).
+
 ## Tools (`dm/tools`)
 
 | Tool | What it does |
