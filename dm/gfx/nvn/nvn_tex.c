@@ -160,3 +160,13 @@ void nvn_tex_level_tiles(const nvn_texdesc *d, unsigned level, unsigned *tileH, 
     *tileH = adj_tile(L.tileH, 8, lh);
     *tileD = adj_tile(L.tileD, 1, ld);
 }
+
+int nvn_tbuf_rows(uint64_t n, uint32_t bpb, uint32_t align, uint32_t *w, uint32_t *h, uint32_t *row) {
+    if (!n || !bpb) return 0;
+    if (!align) align = 1;
+    *w = n < NVN_TBUF_ROW ? (uint32_t)n : NVN_TBUF_ROW;
+    *h = (uint32_t)((n + NVN_TBUF_ROW - 1) / NVN_TBUF_ROW);
+    uint64_t r = (uint64_t)*w * bpb; r = (r + align - 1) / align * align;
+    *row = (uint32_t)r;
+    return *h == 1 || r == (uint64_t)NVN_TBUF_ROW * bpb;   // several rows must lie back to back, as the wrapped address assumes
+}
