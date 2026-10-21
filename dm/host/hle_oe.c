@@ -57,6 +57,12 @@ void dm_set_opmode(int m) {   // called by the front end (overheat downgrade etc
 }
 // FocusState: 1 InFocus, 2 OutOfFocus, 3 Background. The front end calls dm_focus_set (iOS lifecycle / Mac window losing focus)
 static _Atomic int g_focus = 1; static _Atomic uint64_t g_focus_in_ns;   // time of the most recent entry into InFocus
+// Focus handling mode the game set (-1: none). The SDK's oe::SetFocusHandlingMode (SDK 18 sdk+0x3c5770) turns it into am's SetFocusHandlingMode(notify, ?, suspend) and
+// SetOutOfFocusSuspendingEnabled: 0 → (0, 0, 1), 1 → (1, 1, 0), 2 → (1, 0, 1), 3 → (0, 0, 1) + out-of-focus suspending. Only 1 and 2 ask for focus notifications; under 0 and 3
+// the system suspends the game out of focus and it never sees message 15 (the host's suspend is the guest clock freeze and the graphics gate). Super Mario Galaxy 2 sets 3, and
+// its Wii layer's pause on focus 2 (main+0x663ba0) never finished: the main loop waits for the GX thread to pause (main+0x5ce870), which waits for work the paused CPU never sends
+static _Atomic int g_focus_mode = -1;
+static int focus_notifies(void) { int m = atomic_load(&g_focus_mode); return m != 0 && m != 3; }   // no mode set: notify, as before
 int dm_focus_now(void) { return atomic_load(&g_focus); }
 uint64_t dm_focus_in_since(void) { return atomic_load(&g_focus_in_ns); }   // graphics layer display link watchdog: stalls are only computed while active, counted from activation (nvn_mtl.m mtl_present_wait)
 void dm_focus_set(int st) {
@@ -64,7 +70,7 @@ void dm_focus_set(int st) {
     if (st == 1) atomic_store(&g_focus_in_ns, now_ns());
     if (atomic_exchange(&g_focus, st) == st) return;
     LOG("oe focus state → %d", st);
-    mq_push(MSG_FOCUS);
+    if (focus_notifies()) mq_push(MSG_FOCUS);
 }
 static int opmode(void) { return dm_opmode(); }
 
@@ -151,7 +157,9 @@ static void oe_script_start(void) {
 static pthread_once_t g_oe_once = PTHREAD_ONCE_INIT;
 
 HLE_FORCE("_ZN2nn2oe20GetCurrentFocusStateEv", "foreground / background state; driven by the front end's dm_focus_set", int, h_oe_GetFocus, void) { return g_focus; }
-HLE_FORCE("_ZN2nn2oe20SetFocusHandlingModeENS0_17FocusHandlingModeE", "focus handling mode; the game sets 1 (focus notifications), the host implements the notification semantics", void, h_oe_SetFocusMode, int m) { LOG("oe::SetFocusHandlingMode %d", m); }
+HLE_FORCE("_ZN2nn2oe20SetFocusHandlingModeENS0_17FocusHandlingModeE", "focus handling mode; 1 and 2 get focus notifications, 0 and 3 none (see g_focus_mode)", void, h_oe_SetFocusMode, int m) {
+    atomic_store(&g_focus_mode, m); LOG("oe::SetFocusHandlingMode %d (%s)", m, focus_notifies() ? "focus notifications" : "suspended out of focus, no focus notifications");
+}
 
 // Notification: returns bool (w0), the host has no system notifications
 HLE_FORCE("_ZN2nn2oe25TryPopNotificationMessageEPj", "system notification queue; front end state changes are queued", unsigned, h_oe_TryPopMsg, uint32_t *msg) {

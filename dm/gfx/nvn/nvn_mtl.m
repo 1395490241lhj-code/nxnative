@@ -7741,6 +7741,21 @@ int mtl_link_wait_tick(int vsyncs, uint64_t timeout_ns) {
     pthread_mutex_unlock(&g_link_mu); return 1;
 }
 
+// The display's vsync for vi::GetDisplayVsyncEvent (hle_sdk16.c): returns 1 at the first display-link tick of the next 60 Hz vsync after *seen (the tick count it last returned, updated),
+// 0 when the link does not run, runs at 30 Hz (power saving: the 60 Hz event cannot come from it) or gives no tick within the timeout; the caller then keeps its own clock
+int mtl_link_wait_vsync(uint64_t *seen, uint64_t timeout_ns) {
+    if (!mtl_link_active() || g_link_mode == 3) return 0;
+    const uint64_t step = g_link_mode == 2 ? 2 : 1;
+    pthread_mutex_lock(&g_link_mu);
+    if (*seen > g_link_tick_n || g_link_tick_n > *seen + 4 * step) *seen = g_link_tick_n;   // first call, or far behind (a stall): from the current tick on, no burst
+    struct timespec ts; clock_gettime(CLOCK_REALTIME, &ts);
+    ts.tv_sec += timeout_ns / 1000000000ull; ts.tv_nsec += timeout_ns % 1000000000ull;
+    if (ts.tv_nsec >= 1000000000L) { ts.tv_sec++; ts.tv_nsec -= 1000000000L; }
+    while (g_link_tick_n < *seen + step) if (pthread_cond_timedwait(&g_link_cv, &g_link_mu, &ts) == ETIMEDOUT) { pthread_mutex_unlock(&g_link_mu); return 0; }
+    *seen += step;
+    pthread_mutex_unlock(&g_link_mu); return 1;
+}
+
 static id<CAMetalDrawable> g_prefetched_drawable; // Used for compositing straight onto the drawable
 id<CAMetalDrawable> mtl_present_take_prefetched(void) { return g_prefetched_drawable; }
 
