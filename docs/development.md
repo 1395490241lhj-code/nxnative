@@ -370,6 +370,14 @@ The game's own work and its frame rate stay as they are; the host avoids work of
 
   From that save, `DM_KEYS="f600:A,f1000:LRight~0.3,f1300:A"` starts Plucky Pass Beginnings (play from about frame 1,900). How the route was found (position probe, the stage map's guide rail) is in [05](agents/05-debugging.md).
 
+**Brain Memory Training Academy (`0100F5D01DA3A000`)**
+- **Status:** brought up on the Mac: the title, the controls screen, the level select and the levels with their Level Complete / Level Failed screens, at 60 fps with real sound and saves, no red line; about 0.75 GB resident, flat over 20 minutes. Playable on an iPhone.
+- **Engine:** Unity 2022.3.5f1 IL2CPP with FMOD on SDK 16.2.4 (its `sdk` is Unicorn Overlord 1.05's build), base game 1.0.0; `subsdk0` is the movie module.
+- **Shaders:** 496 in the player's serialized files (`Data/*.assets`, `Data/Resources`) and `main`. There are no bundles, so no file carries a `Shader` type tree to borrow; `unityfs.py` has Unity 2022.3's layout written out (`KNOWN_TREES`, the hash Ace Attorney Investigations Collection's bundles carry). The built-in VR blit's geometry shader does not build ([04](agents/04-graphics.md)).
+- **Memory:** virtual address memory as in Ace Attorney Investigations Collection: `nninitStartup` gives StandardAllocator pool − used, which needs the node area cut on this `sdk` build (`patch_nso.py`; Unicorn Overlord, which has no system resource, runs the same with it). Ace Attorney's 1 GB pool and 5 GB block; the live regions end at about +2.1 GB of the 4.375 GB alias region ([03](agents/03-bringup.md)).
+- **Input:** controller only (stick or D-pad, A, B, +); the game never reads the touch screen, so it stays docked at 1920x1080 and the virtual gamepad starts in the 2D layout.
+- **Mac input:** `DM_KEYS="f400:A,f700:A,f1000:A,f1200:Right,f1300:A"` starts a new game, enters level 1 and clears it (Level Complete at about frame 1,350).
+
 ## Tools (`dm/tools`)
 
 | Tool | What it does |
