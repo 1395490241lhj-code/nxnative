@@ -1,4 +1,4 @@
-# Game profile of FINAL FANTASY TACTICS - The Ivalice Chronicles (Switch, update 1.4.0 = v393216). In bring-up: on the Mac the game plays through the opening into the Orbonne Monastery battle
+# Game profile of FINAL FANTASY TACTICS - The Ivalice Chronicles (Switch, update 1.4.0 = v393216). Plays on the Mac and on the iPhone
 # Format: see dm/games/README.md
 # Square Enix's engine on SDK 19.3.9 (sdk byte-identical to Hades II's), NVN: main imports only nvnBootstrapLoader, and the bundled OpenGL driver (subsdk0) is not loaded. Files are loose in
 # resources/ and resources_nx/ (textures .tex, models, CRI ADX audio, CRI USM movies decoded by the game's own CRI Mana on the CPU)

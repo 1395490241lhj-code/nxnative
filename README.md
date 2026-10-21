@@ -45,6 +45,8 @@ All of these are tested on an iPhone and playable:
 | Octopath&nbsp;Traveler&nbsp;0 | ~4&nbsp;GB | Upgraded to 60 fps (30 fps on Switch); the upgrade needs update 1.0.5, it does not work with other versions |
 | Pokémon&nbsp;Legends:&nbsp;Z-A | ~6&nbsp;GB | |
 | Cuphead | ~5&nbsp;GB | |
+| Super&nbsp;Mario&nbsp;Galaxy&nbsp;2 | ~3&nbsp;GB | |
+| FINAL&nbsp;FANTASY&nbsp;TACTICS&nbsp;-&nbsp;The&nbsp;Ivalice&nbsp;Chronicles | ~11&nbsp;GB | |
 
 | | |
 |:---:|:---:|
@@ -58,7 +60,8 @@ All of these are tested on an iPhone and playable:
 | ![Ace Attorney Investigations Collection](docs/images/ace-attorney-investigations.jpg)<br>Ace Attorney Investigations Collection | ![Hades II](docs/images/hades-ii.jpg)<br>Hades II |
 | ![Unicorn Overlord](docs/images/unicorn-overlord.jpg)<br>Unicorn Overlord | ![Rhythm Heaven Groove](docs/images/rhythm-heaven-groove.jpg)<br>Rhythm Heaven Groove |
 | ![Octopath Traveler 0](docs/images/octopath-traveler-0.jpg)<br>Octopath Traveler 0 | ![Pokémon Legends: Z-A](docs/images/pokemon-legends-z-a.jpg)<br>Pokémon Legends: Z-A |
-| ![Cuphead](docs/images/cuphead.jpg)<br>Cuphead | |
+| ![Cuphead](docs/images/cuphead.jpg)<br>Cuphead | ![Super Mario Galaxy 2](docs/images/super-mario-galaxy-2.jpg)<br>Super Mario Galaxy 2 |
+| ![FINAL FANTASY TACTICS - The Ivalice Chronicles](docs/images/final-fantasy-tactics.jpg)<br>FINAL FANTASY TACTICS - The Ivalice Chronicles | |
 
 Needs iOS / iPadOS 26 or later on an iPhone 15 Pro or newer (A17 Pro chip or later) or an iPad with an M1 chip or later: the games' textures are BC-compressed, and older iPhones can't read that format. Other games aren't supported yet. For them the script writes a survey and still tries its best to pack an IPA, guessing the game's settings; such an IPA may not start.
 
@@ -93,7 +96,7 @@ The IPA appears in the same folder (here `~/Games/MarioWonder/SMBWMobile.ipa`). 
 
 ## Play
 
-**Touch controls.** Tap **2D** / **3D** at the top to switch layouts; the app remembers your choice. Wonder, Engage, Dread, 13 Sentinels and Link's Awakening start in 2D, the other games in 3D. In 3D, the right stick (the camera in most games) is not drawn: swipe on the right third of the screen, starting anywhere off the buttons. In Super Mario Galaxy, other touches outside the controls move the pointer.
+**Touch controls.** Tap **2D** / **3D** at the top to switch layouts; the app remembers your choice. Wonder, Engage, Dread, 13 Sentinels and Link's Awakening start in 2D, the other games in 3D. In 3D, the right stick (the camera in most games) is not drawn: swipe on the right third of the screen, starting anywhere off the buttons. In Super Mario Galaxy and Super Mario Galaxy 2, other touches outside the controls move the pointer.
 A connected game controller hides the touch controls and keeps every button.
 
 - **Game language** is English by default. For Chinese, add the line `DM_LANG=zh-Hans` to `Documents/env.txt`.
@@ -107,7 +110,7 @@ A connected game controller hides the touch controls and keeps every button.
 - No amiibo and no online features.
 - Fire Emblem Engage: after switching away from the app and back, some sounds may stay silent until you restart it.
 - Fire Emblem: Three Houses: small square patches on the ground where decals land.
-- Super Mario Galaxy: effects drawn as points or lines come out one pixel wide.
+- Super Mario Galaxy and Super Mario Galaxy 2: effects drawn as points or lines come out one pixel wide.
 
 ## For developers
 
