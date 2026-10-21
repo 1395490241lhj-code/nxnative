@@ -34,7 +34,7 @@ Map GOT slots to NVN names with the survey table (`census/*_nvn_slots.tsv`): a c
 
 ## Probes without a debugger (`DM_PROBE`)
 
-`DM_PROBE=main:4290c0,main:9712c` (module:offset, comma-separated; `host/probe.c`, Mac only) replaces the instruction with `brk`, and on every hit prints the guest thread (`T=`), x0–x7 (and strings they point to), x19–x23, lr, x8 and a backtrace, then runs the original instruction from a trampoline. Put probes at function entries or where x16 is dead; the probed instruction must not be PC-relative (no `adrp`, `adr`, `b`, `bl`, literal `ldr`: probe the next instruction instead). Output from several threads interleaves; parse it with a regex rather than by line. Probes slow the game, which can shift heap addresses between runs.
+`DM_PROBE=main:4290c0,main:9712c` (module:offset, comma-separated; `host/probe.c`, Mac only) replaces the instruction with `brk`, and on every hit prints the guest thread (`T=`), x0–x7 (and strings they point to), x19–x23, lr, x8 and a backtrace, then runs the original instruction from a trampoline. Put probes at function entries or where x16 is dead; the probed instruction must not be PC-relative (no `adrp`, `adr`, `b`, `bl`, literal `ldr`: probe the next instruction instead). Each hit prints as one block even when several threads hit at once. Probes slow the game, which can shift heap addresses between runs.
 
 Per-probe suffixes, in this order:
 
@@ -42,7 +42,9 @@ Per-probe suffixes, in this order:
 |---|---|
 | `@off`, `@*off`, `@xN+off`, `@*xN+off` | Print 16 bytes at x0+off (or xN+off); `*` dereferences that address first |
 | `?xN=val`, `?[xN+off]=val` | Only report hits where the register (or the 64-bit word at xN+off) equals `val` (hex); others pass silently. E.g. `main:4743c0?[x0+30]=781548` = only allocations into the heap whose size field is 0x781548 |
-| `!xN` | Treat xN as a `sead::ExpHeap` and print its free and used blocks (offset+size) |
+| `!xN` | Treat xN as a `sead::ExpHeap` and print its free and used blocks (offset+size, `p` + alignment pad) |
+
+The `!xN` heap walk takes the layout of the game's sead version from `DM_PROBE_HEAP=<name>,<start>,<size>,<free list>,<used list>` (hex offsets in the heap object; default Mario's `0,28,30,b0,c8`, Breath of the Wild's `28,38,40,e0,f8`; find them in the heap's constructor and `tryAlloc`). `DM_PROBE_HEAPNAME=<text>` reports only hits whose heap name contains the text (resource heaps are named after their file), `DM_PROBE_HEAPWORDS=1` adds the first two words of each used block (a vtable names the object), `DM_PROBE_HEAPFRAME=<vtable offset in main>` prints heaps of that class as frame heaps (head, tail, free), and `DM_PROBE_HEAPRAW=1` dumps the heap object's first 0x130 bytes, to find another class's fields.
 
 `DM_PROBE_ALL=1` adds x9–x18; `DM_PROBE_X2=<bytes>` dumps the memory x2 points to.
 

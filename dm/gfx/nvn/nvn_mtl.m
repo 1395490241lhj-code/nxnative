@@ -4356,9 +4356,9 @@ static void fz_probe_cov2(const p_set_rt *r2, const uint8_t *first, const int8_t
     static typeof(S) Ssave; memcpy(&Ssave, &S, sizeof S); typeof(R) Rsave = R;
     const p_draw *fdw = g_fd_dw; const p_draw_idx *fdi = g_fd_di; int fdwhy = g_fd_why;
     int pso_dirty = g_pso_dirty, dss_dirty = g_dss_dirty;
-    op_hdr fh; memcpy(&fh, first, sizeof fh);
-    g_fd_dw = fh.op == OP_DRAW ? (const p_draw *)(first + 8) : NULL;
-    g_fd_di = fh.op == OP_DRAW_IDX ? (const p_draw_idx *)(first + 8) : NULL;
+    op_hdr fh; memcpy(&fh, first, sizeof fh); p_draw fdw_t; p_draw_idx fdi_t;
+    g_fd_dw = fh.op == OP_DRAW ? draw_rec(first + 8, fh.size, &fdw_t) : NULL;
+    g_fd_di = fh.op == OP_DRAW_IDX ? draw_idx_rec(first + 8, fh.size, &fdi_t) : NULL;
     R.rt = *r2; R.has_rt = 1;
     fz_cursor cur = {.p = g_exec_next};
     for (;;) {
@@ -5582,8 +5582,9 @@ static void ixc_run(const p_draw *dw, const p_draw_idx *di) {
         const uint8_t *q; op_hdr h; const void *a;
         for (int guard = 0; guard < 200000 && g_ixc_n < IXC_MAX && fz_next(&cur, &q, &h, &a); guard++) {
             if (h.op == OP_DISPATCH || h.op == OP_COPY_B2B || h.op == OP_UPDATE_UB || h.op == OP_CLEAR_BUF || h.op == OP_COPY_T2B) break;
-            if (h.op == OP_DRAW && ixc_wanted(a, NULL)) ixc_take(a, NULL);
-            else if (h.op == OP_DRAW_IDX && ixc_wanted(NULL, a)) ixc_take(NULL, a);
+            p_draw dt; p_draw_idx it; const p_draw *d = h.op == OP_DRAW ? draw_rec(a, h.size, &dt) : NULL; const p_draw_idx *x = h.op == OP_DRAW_IDX ? draw_idx_rec(a, h.size, &it) : NULL;
+            if (d && ixc_wanted(d, NULL)) ixc_take(d, NULL);
+            else if (x && ixc_wanted(NULL, x)) ixc_take(NULL, x);
         }
     }
     if (g_enc) { g_ixc_splits++; PD("M %llu indirect draw conversion: render pass split here", g_stat_pass); rp_end(); }
@@ -5659,7 +5660,8 @@ static void wide_run(const p_draw_idx *di) {
         const uint8_t *q; op_hdr h; const void *a;
         for (int guard = 0; guard < 200000 && g_wide_n < WIDE_MAX && fz_next(&cur, &q, &h, &a); guard++) {
             if (h.op == OP_DISPATCH || h.op == OP_COPY_B2B || h.op == OP_UPDATE_UB || h.op == OP_CLEAR_BUF || h.op == OP_COPY_T2B) break;
-            if (h.op == OP_DRAW_IDX && wide_wanted(a)) wide_take(a);
+            p_draw_idx it; const p_draw_idx *x = h.op == OP_DRAW_IDX ? draw_idx_rec(a, h.size, &it) : NULL;
+            if (x && wide_wanted(x)) wide_take(x);
         }
     }
     int n = g_wide_n - n0; if (n <= 0) return;
@@ -6786,8 +6788,8 @@ void mtl_exec(const uint8_t *p) {
                 PD("c %llu depth-stencil clear recorded ser=%llu depth=%g depth_mask=%d stencil=%d stencil_mask=%#x", g_stat_pass, R.rt.depth ? (unsigned long long)R.rt.depth->serial : 0ull, c->depth, c->depth_mask, c->stencil, c->stencil_mask);
                 break;
             }
-            case OP_DRAW: if (g_rc_skip) break; g_exec_next = p + h.size; draw(a, NULL); g_exec_next = NULL; break;   // Lookahead start point
-            case OP_DRAW_IDX: if (g_rc_skip) break; g_exec_next = p + h.size; draw(NULL, a); g_exec_next = NULL; break;
+            case OP_DRAW: { if (g_rc_skip) break; p_draw t; g_exec_next = p + h.size; draw(draw_rec(a, h.size, &t), NULL); g_exec_next = NULL; break; }   // Lookahead start point
+            case OP_DRAW_IDX: { if (g_rc_skip) break; p_draw_idx t; g_exec_next = p + h.size; draw(NULL, draw_idx_rec(a, h.size, &t)); g_exec_next = NULL; break; }
             // Do not mark dirty if the state did not change (the game often re-sends the same program / state block / vertex format before each draw; the dirty flag only decides whether to re-fetch the pipeline / depth-stencil object, and equal values mean the same object)
             case OP_SCISSOR: case OP_BIND_PROGRAM: case OP_BIND_STATE: case OP_BIND_VATTR: case OP_BIND_VSTREAM: case OP_BIND_VBUF:
             case OP_BIND_UBO: case OP_BIND_SSBO: case OP_BIND_TEX: case OP_BIND_SAMP: case OP_BIND_IMG: case OP_STENCIL:
