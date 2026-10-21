@@ -45,6 +45,14 @@ STAGE_NAME = {'vs': 'vertex', 'hs': 'hull', 'ds': 'domain', 'gs': 'geometry', 'p
 
 def red(msg): sys.exit('[RED] ' + msg)
 
+def zstd_mod():
+    """The zstd module: compression.zstd from Python 3.14, its backport before (pip install backports.zstd), the same API"""
+    try: from compression import zstd
+    except ImportError:
+        try: from backports import zstd
+        except ImportError: red(f'Python {sys.version_info[0]}.{sys.version_info[1]} has no compression.zstd (3.14+): pip install backports.zstd')
+    return zstd
+
 def ctl_len(ctl):
     """Number of control bytes in the key: control +0x20 holds the section's own length. Every control section of Mario, Fire Emblem Engage, Metroid Dread and 13 Sentinels is at least 0x880 bytes, so the first 0x880 are used;
     SDK 10's Super Mario 3D World + Bowser's Fury has 2,888 that are only 0x850 bytes (the bfsha in ShaderData, 6 layouts), with other data right after them, so only their own length is used (the same as the host's keys_hash)"""
@@ -249,7 +257,7 @@ def kpka_data(d, e, head=None):
     if attr & 0xf == 0: return raw[:head] if head else raw
     if attr & 0xf == 1: return zlib.decompressobj(-15).decompress(raw, head or 0)
     if attr & 0xf == 2:
-        from compression import zstd
+        zstd = zstd_mod()
         if not head: return zstd.decompress(raw)
         return zstd.ZstdDecompressor().decompress(raw, max_length=head)
     red(f'PAK entry {e[0]:016x}: compression {attr & 0xf} is not known')
@@ -422,11 +430,7 @@ def zs_dicts(romfs):
     a SARC (itself plain zstd) of *.zsdic files, each a zstd dictionary (magic 0xEC30A437, then its ID). → {ID: dictionary}; {} without that file (Mario's .zs are plain zstd)"""
     p = os.path.join(romfs, 'Pack/ZsDic.pack.zs')
     if not os.path.exists(p): return {}
-    try:
-        from compression import zstd          # Python 3.14+
-    except:
-        from backports import zstd            # pip install backports.zstd
-    d = zstd.decompress(open(p, 'rb').read())
+    d = zstd_mod().decompress(open(p, 'rb').read())
     return {struct.unpack_from('<I', m, 4)[0]: m for _, m in sarc_members(d) if m[:4] == bytes.fromhex('37a430ec')}
 
 def unzs(path):
@@ -436,10 +440,7 @@ def unzs(path):
     n, o = (0, 1, 2, 4)[fhd & 3], 6 - (fhd >> 5 & 1)   # dictionary ID size; it follows the window descriptor, which single-segment frames omit
     did = int.from_bytes(d[o:o + n], 'little')
     if not did: return subprocess.run(['zstd', '-d', '-c', '-q', path], capture_output=True, check=True).stdout
-    try:
-        from compression import zstd          # Python 3.14+
-    except:
-        from backports import zstd            # pip install backports.zstd
+    zstd = zstd_mod()
     if did not in ZDICTS: red(f'{path}: a frame needs zstd dictionary {did}, which Pack/ZsDic.pack.zs does not have')
     if did not in _ZD: _ZD[did] = zstd.ZstdDict(ZDICTS[did])
     return zstd.decompress(d, zstd_dict=_ZD[did])

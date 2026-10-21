@@ -70,7 +70,7 @@ Needs iOS / iPadOS 26 or later on an iPhone 15 Pro or newer (A17 Pro chip or lat
 git clone https://github.com/seedds/nxnative.git && cd nxnative
 brew install xcodegen zstd spirv-cross
 brew install --cask dotnet-sdk
-python3 -m pip install lz4 capstone fonttools
+python3 -m pip install lz4 capstone fonttools "backports.zstd; python_version < '3.14'"
 ```
 
 **2. Put one game's NSPs in a folder**, base game (an NSP, or an XCI cartridge dump) and update (and any DLC):
