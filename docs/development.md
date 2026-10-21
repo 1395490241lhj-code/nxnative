@@ -340,6 +340,14 @@ The game's own work and its frame rate stay as they are; the host avoids work of
 - **Graphics:** UI textures are written by the CPU into uncached pools after creation (`tex_flush_upload`, `tex_dirty_upload`), and the UI is composited into the window texture by fragment-shader image stores read back as `r32ui`, between game barriers inside one pass ([04](agents/04-graphics.md)).
 - **Mac input:** a fresh save reaches the first battle turn at about frame 21,000 with `DM_KEYS="22:A*60/2,150:Plus,152:X~2.5,165:Plus,167:X~2.5,175:A*70/2"` (A through the settings and the birthday, then + and a held X skip each part of the opening).
 
+**Absolum (`0100A83022A22000`)**
+- **Status:** brought up on the Mac: the logo movie, the licence agreement, the main menu, the campfire character select, the intro and the first level (the "Strike / Skill" tutorial and the cave after it), at 60 fps with real sound and saves; about 2.5 GB resident. Not yet run on an iPhone.
+- **Engine:** FNA (XNA 4 in C#) compiled with .NET NativeAOT (its own GC, regions enabled), SDL3, FNA3D's NVN driver, Wwise, SDK 18.3.2, update 1.1.1 (v393216). NVIDIA's OpenGL and Vulkan drivers (`subsdk1`, `subsdk0`) are not loaded; `subsdk2` is the movie module (H.264 logos). Epic Online Services comes as an NRO the host does not load; the game plays offline without it.
+- **Code:** `main` starts its text with 1.7 MB of data, which the rewriter now leaves alone (`dm/tools/nso_code.py`).
+- **Shaders:** 162 GLSLC outputs in `shaders.nx.bin`. The picture is flipped by a viewport swizzle, which the host now applies ([04](agents/04-graphics.md)).
+- **Memory:** everything is virtual address memory: malloc's StandardAllocator (40 GB of address space, cut to 2.5 GB on this build; 1.75 GB of it is FNA3D's GPU heap), the .NET GC's region range (`game_env DOTNET_GCRegionRange=60000000`: 1.5 GB instead of 3.75), and the SDK cuts for its node area and its 1 GB alignment of large regions. They take 4.13 GB of the 4.375 GB alias region in a 5 GB block ([03](agents/03-bringup.md)).
+- **Mac input:** a fresh save reaches the first level at about frame 9,000 with `DM_KEYS="f1500:A,f1900:A,f2300:A,f2700:A,f3000:A,f3300:A,f3600:A,f4000:A,f4400:A,f4800:A,f5400:A*30/150"` (any button, accept the licence, New game, the character select, then A through the intro and the first dialogue); `LRight` walks, Y strikes and X uses the skill.
+
 ## Tools (`dm/tools`)
 
 | Tool | What it does |
@@ -348,5 +356,6 @@ The game's own work and its frame rate stay as they are; the host avoids work of
 | `nso_fnmap.py` | Carries offsets from one build to another (function matching with addresses masked; globals via their references) |
 | `nso2elf.py` | Converts NSO to ELF for Ghidra / REA |
 | `insn_census.py` | Counts the instruction sites the rewriter must handle |
+| `nso_code.py` | Function ranges from `.eh_frame` and the data blocks in a text segment, which the rewriter and the census leave out |
 | `nso_syms.py` | Compares the SDK import surface of two games, or of one game (`-` for the reference) with the host hooks |
 | `nvn_slots_got.py` | Builds the NVN fetch table and call sites (GOT-indirect loaders) |
