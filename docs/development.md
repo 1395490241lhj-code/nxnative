@@ -378,6 +378,16 @@ The game's own work and its frame rate stay as they are; the host avoids work of
 - **Input:** controller only (stick or D-pad, A, B, +); the game never reads the touch screen, so it stays docked at 1920x1080 and the virtual gamepad starts in the 2D layout.
 - **Mac input:** `DM_KEYS="f400:A,f700:A,f1000:A,f1200:Right,f1300:A"` starts a new game, enters level 1 and clears it (Level Complete at about frame 1,350).
 
+**The Great Ace Attorney Chronicles (`010036E00FB20000`)**
+- **Status:** brought up on the Mac: the first-boot notices (the DLC found, auto-save), the title and its Options, a new game of The Great Ace Attorney: Adventures, the opening movie, the first episode's opening scenes and its trial, at 30 fps with sound and saves; about 1.1 GB resident, flat over 14 minutes. Playable on an iPhone.
+- **Engine:** Capcom's MT Framework on SDK 10.4.1, NVN, base game 1.0.0 (v0). Files are ARC archives of zlib entries under `nativeNXx64/` ([01](agents/01-extract.md)); `subsdk0` is the SDK's movie module, whose extractor runs natively while the host decodes the H.264 movies (VideoToolbox).
+- **Shaders:** 460 (230 vertex, 230 pixel) in one MT Framework shader package (`sa/NX_64/root.arc`), which `shader_split.py` now reads ([04](agents/04-graphics.md)); all build, every binding decodes.
+- **Host:** SDK 10 calls that reach a service, found from the import list (album notifications, store demo mode, `vi::ListDisplays`, `fs::RenameDirectory`, save thumbnails, shop and friend applets, the profanity filter called by name), and two NVN calls ([03](agents/03-bringup.md)).
+- **Graphics:** the textures are copied into a CPU-cached pool by the CPU after creation, with no flush of any kind (`tex_flush_upload`, `tex_dirty_upload`; [04](agents/04-graphics.md)).
+- **Add-on content:** index 1 (`DLC.dlcp`); the game reports it found and added to Special Contents.
+- **Memory:** no system resource; the game sets a 3.14 GB heap (pool − 64 MB) in the 4 GB layout.
+- **Mac input:** `DM_KEYS="f700:A*1000/24"` (A every 24 frames) goes through the notices, the title and a new game into the opening movie; the first episode's dialogue starts at about frame 6,000 and its trial at about 20,000.
+
 ## Tools (`dm/tools`)
 
 | Tool | What it does |
