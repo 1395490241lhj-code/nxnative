@@ -28,6 +28,9 @@ python3 scripts/build_ipa_from_nsp.py ~/Games/MarioWonder -k ~/keys/prod.keys -p
 # delete the extracted game files after the IPA is built (they are kept by default, to skip extraction next time and to run the game on the Mac)
 python3 scripts/build_ipa_from_nsp.py ~/Games/MarioWonder -k ~/keys/prod.keys --no-keep-extracted
 
+# play the game in Japanese (a code or a name: ja, fr, de, es, zh-Hans, zh-Hant, ko, en-GB, ..., Japanese; English by default)
+python3 scripts/build_ipa_from_nsp.py ~/Games/MarioWonder -k ~/keys/prod.keys -l ja
+
 # show the game's frame rate on the iPhone (frames on screen per second, top left)
 python3 scripts/build_ipa_from_nsp.py ~/Games/MarioWonder -k ~/keys/prod.keys --show-fps
 
@@ -44,7 +47,7 @@ python3 scripts/build_ipa_from_nsp.py ~/Games/NewGame -k ~/keys/prod.keys
 python3 scripts/build_ipa_from_nsp.py ~/Games/MarioGalaxy -k ~/keys/prod.keys --provisional --allow-damaged
 ```
 
-In Spyder, open the script, fill in the settings at the top (`NSP_DIR`, `PROD_KEYS`, and optionally `PACKAGE`, `OUT_IPA`, `APP_NAME`, `BUNDLE_ID`, `KEEP_EXTRACTED`, `SHOW_FPS`; for a game without a profile `HEAP_CHECK`, `HEAP_CHECK_SECS`, `PROVISIONAL`), and press F5. Empty paths are asked for at run time.
+In Spyder, open the script, fill in the settings at the top (`NSP_DIR`, `PROD_KEYS`, and optionally `PACKAGE`, `OUT_IPA`, `APP_NAME`, `BUNDLE_ID`, `LANGUAGE`, `KEEP_EXTRACTED`, `SHOW_FPS`; for a game without a profile `HEAP_CHECK`, `HEAP_CHECK_SECS`, `PROVISIONAL`), and press F5. Empty paths are asked for at run time.
 
 What the script does:
 1. It finds the game profile from the title ID (the `[title ID]` in the file names, or the NSP's ticket; the update by its `[vN]` tag).
@@ -68,6 +71,7 @@ While it runs, the console shows one line per stage: building nx_extract, extrac
 When the output goes to a file or a pipe, the script prints a plain line instead, every `BEAT` seconds (30). `--progress bar|lines|off` (`PROGRESS` in Spyder) overrides that choice; `off` prints only each stage's start and end. The tools' own output goes only to the logs in `<id>_build/logs/`, one per step. When a step fails, the script prints the last 40 lines of that step's log and the log's path.
 
 Everything it writes stays in the NSP folder: intermediate files and logs in `<id>_build/`, the IPA next to the NSPs. The extracted game files stay in `<id>_build/extract/` for the next build; `--no-keep-extracted` (`KEEP_EXTRACTED = False` in Spyder) deletes them at the end. It exits with 0 when done and 1 on an error. The app's bundle ID is `org.nxnative.<base game title ID>` (for example `org.nxnative.0100a6301214e000`), and its version is the game's display version: the update's when an update is packed, else the base game's (Engage 2.0.0); `--app-name` / `--bundle-id` (or `APP_NAME` / `BUNDLE_ID` in Spyder) override the name and ID.
+The game language (`--language`, `LANGUAGE`; English by default) is what `nn::oe::GetDesiredLanguage` returns. As on the console, it must be one the game's control data lists (`SupportedLanguageFlag`, `nacp.py --languages`); the packed version's control data counts, since an update may add languages. The same language for another region stands in (`en-GB` for `en-US`, `es` for `es-419`, `fr` for `fr-CA`, `pt` for `pt-BR`, and back). A language the game lacks stops the build with the game's list; English, the default, falls back to the game's first language.
 
 On the device, environment switches go in `Documents/env.txt` (one `KEY=VALUE` per line), and game files are also accepted at `Documents/romfs`.
 
@@ -122,6 +126,7 @@ Notes on these steps:
 - It also bundles a standard font (macOS's Arial Unicode, `STD_FONT=` overrides it) and the generated `nintendo_ext.ttf`.
 - The icon is the `icon.jpg` that `nx_extract` saves next to `RomFS/`; `DM_ICON=` points at another image.
 - `DM_ENV_FILE=` bakes environment switches into the app, and `DM_DISPLAY_NAME=` renames it.
+- `DM_LANG=<code>` is the game language (`DMLanguage` in `Info.plist`, default `en-US`; `main.m` sets `DM_LANG` from it unless `Documents/env.txt` or the baked env file sets it).
 - `DM_SHOW_FPS=1` turns the frame-rate counter on (`DMShowFPS` in `Info.plist`, which `front_ios.m` reads; `DM_SHOW_FPS` in `Documents/env.txt` overrides it). It counts the frames put on screen each second (`mtl_present_count`), so frames the display link merges away are not counted.
 - If Xcode's Locations setting puts products in a custom place, the script finds the app through the build log.
 - hactool cannot read every update (Mario 1.2.1's patch NCA gives "Invalid BKTR layout!"), which is why `nx_extract` uses LibHac.

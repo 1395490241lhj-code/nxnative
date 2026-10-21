@@ -25,6 +25,8 @@ PACKAGE = ''                            # version packed into the IPA (empty = t
 OUT_IPA = ''                            # output IPA (empty = <the profile's ipa> in the NSP folder)
 APP_NAME = ''                           # app name on the home screen (empty = the game name in the base NSP)
 BUNDLE_ID = ''                          # the app's bundle ID (empty = org.nxnative.<base game title ID in lowercase>)
+LANGUAGE = ''                           # game language, a code or a name: 'ja', 'fr', 'de', 'es', 'zh-Hans', 'zh-Hant', 'ko', 'Japanese', ... (empty = English); it must be one the game supports (the console line lists them);
+                                        #   DM_LANG=<code> in the app's Documents/env.txt changes it without a rebuild
 KEEP_EXTRACTED = True                   # keep the extracted game files after the IPA is built (saves extraction next time; as big as the game files); False deletes them
 DM_ENV_FILE = ''                        # optional: environment switches for a diagnostic build (one KEY=VALUE per line)
 SHOW_FPS = False                        # True shows the game's frame rate on the iPhone (frames on screen per second, top left); DM_SHOW_FPS=0 / 1 in the app's Documents/env.txt changes it without a rebuild
@@ -229,6 +231,31 @@ def tree_size(d):   # (files, bytes) under d; (0, 0) when it does not exist yet
 def in_ipython():   # Spyder (and Jupyter) run this file inside IPython: input works there, and sys.exit must not be called (it piles an error onto the console)
     import builtins
     return hasattr(builtins, '__IPYTHON__')
+
+
+LANG_NEAR = {'en-US': 'en-GB', 'en-GB': 'en-US', 'fr': 'fr-CA', 'fr-CA': 'fr', 'es': 'es-419', 'es-419': 'es', 'pt': 'pt-BR', 'pt-BR': 'pt'}   # the same language for another region
+
+
+def language_code(s):
+    """A game language as typed (a code such as ja / zh-Hans, any case, _ for -, or its name such as Japanese) → its language code (nacp.LANGUAGES); None when it is none of them"""
+    k = s.strip().lower().replace('_', '-')
+    for c, n in nacp.LANGUAGES:
+        if k in (c.lower(), n.lower()): return c
+    return {'en': 'en-US', 'english': 'en-US', 'zh-cn': 'zh-Hans', 'zh-tw': 'zh-Hant'}.get(k)   # the settings' older codes for Chinese
+
+
+def game_language(want, asked, have):
+    """The language code to pack: want when the game supports it, else the same language for another region (en-GB for en-US, es for es-419, ...); have: the game's languages (empty: unknown, want as is).
+    A language the game lacks stops the build when it was asked for; English, the default, then falls back to the game's first language"""
+    if not have or want in have: return want
+    if LANG_NEAR.get(want) in have: return LANG_NEAR[want]
+    if asked: raise BuildError(f'the game has no {want} ({dict(nacp.LANGUAGES)[want]}); its languages: {language_list(have)} (--language / LANGUAGE)')
+    return have[0]
+
+
+def language_list(codes):
+    names = dict(nacp.LANGUAGES)
+    return ', '.join(f'{c} ({names[c]})' for c in codes)
 
 
 def ask(prompt, what):   # what: what is missing, for the error message
@@ -1129,6 +1156,8 @@ def parse_args(argv):
     ap.add_argument('-o', '--out', help='output IPA (default: <the profile\'s ipa> in the NSP folder)')
     ap.add_argument('--app-name', help='app name on the home screen (default: the game name in the base NSP)')
     ap.add_argument('--bundle-id', help='the app\'s bundle ID (default: org.nxnative.<base game title ID in lowercase>)')
+    ap.add_argument('-l', '--language', help='game language, a code or a name: ja, fr, de, es, it, nl, pt, ru, ko, zh-Hans, zh-Hant, en-GB, fr-CA, es-419, pt-BR, Japanese, ... (default: the LANGUAGE setting, else English); '
+                    'it must be one the game supports, which the console lists')
     ap.add_argument('--keep-extracted', action=argparse.BooleanOptionalAction, help='keep the extracted game files after the IPA is built, for the next build (default: the KEEP_EXTRACTED setting, on)')
     ap.add_argument('--env-file', help='environment switches for a diagnostic build (one KEY=VALUE per line)')
     ap.add_argument('--show-fps', action=argparse.BooleanOptionalAction, help='show the game\'s frame rate on the iPhone, frames on screen per second at the top left (default: the SHOW_FPS setting, off)')
@@ -1155,6 +1184,9 @@ def main(args=None):
     keys = Path(os.path.expanduser(args.keys or PROD_KEYS or ask('path of prod.keys: ', 'prod.keys (-k)'))).resolve()
     if not nsp_dir.is_dir(): raise BuildError(f'not a folder: {nsp_dir}')
     if not keys.is_file(): raise BuildError(f'no such file: {keys}')
+    lang_in = args.language or LANGUAGE   # checked against the game's languages once its control data is extracted
+    want_lang = language_code(lang_in) if lang_in else 'en-US'
+    if not want_lang: raise BuildError(f'unknown game language {lang_in!r}; give one of {language_list([c for c, _ in nacp.LANGUAGES])}, by code or by name')
     env = dict(os.environ, PATH=os.pathsep.join(TOOL_PATHS + [os.environ.get('PATH', '/usr/bin:/bin:/usr/sbin:/sbin')]))
     env.setdefault('USER', getpass.getuser())   # xcodegen fails without USER (Couldn't find current username)
     env.setdefault('J', str(os.cpu_count() or 8))   # shader_split.py's and dmsh_build.py's workers (their default is 8)
@@ -1231,6 +1263,11 @@ def main(args=None):
     # the app version is the packed game's display version: the update's control data when an update is packed (nx_extract saves it next to the RomFS), else the base game's
     app_version = nacp.version(game / 'control.nacp') or nacp.version(base / 'control.nacp')
     say(f'app name: {app_name}; version: {app_version or "1.0"}; bundle ID: {bundle_id}')
+    # the game language: Horizon gives the game one of the languages its control data lists (the packed version's, which an update may extend), so the one packed must be among them
+    have = nacp.languages(game / 'control.nacp') or nacp.languages(base / 'control.nacp')
+    lang = game_language(want_lang, bool(lang_in), have)
+    say(f'game language: {lang} ({dict(nacp.LANGUAGES)[lang]})' + (f', the game has no {want_lang}' if lang != want_lang else '')
+        + (f'; the game\'s languages: {" ".join(have)}' if have else '; the control data lists no languages (not checked)') + ' (DM_LANG=<code> in the app\'s Documents/env.txt changes it)')
 
     patched = work / f'patched_{pkg_ver}'
     rewrite(py, repo, game / 'ExeFS', patched, env, logs, g)
@@ -1253,7 +1290,7 @@ def main(args=None):
 
     if free_gb(out_ipa.parent) < 5: raise BuildError(f'less than 5 GB free on the volume of {out_ipa.parent}')
     say(f'building the IPA → {out_ipa}')
-    ipa_env = dict(env, GAME=g.id, W=str(work / 'ipa'), PATCHED=str(patched), ROMFS=str(game / 'RomFS'), MSL_IOS=str(ios), GFXAPI=gfx, FONT_PY=py, DM_DISPLAY_NAME=app_name, DM_BUNDLE_ID=bundle_id, AOC=str(aoc or ''))
+    ipa_env = dict(env, GAME=g.id, W=str(work / 'ipa'), PATCHED=str(patched), ROMFS=str(game / 'RomFS'), MSL_IOS=str(ios), GFXAPI=gfx, FONT_PY=py, DM_DISPLAY_NAME=app_name, DM_BUNDLE_ID=bundle_id, AOC=str(aoc or ''), DM_LANG=lang)
     if app_version: ipa_env['DM_APP_VERSION'] = app_version
     # app icon: the game icon nx_extract saved from the control data (English, icon.jpg); the packed version's first, then the base game's
     icon = next((d / 'icon.jpg' for d in (game, base) if (d / 'icon.jpg').exists()), None)
