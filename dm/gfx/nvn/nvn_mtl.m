@@ -1195,9 +1195,11 @@ static pthread_mutex_t g_smu = PTHREAD_MUTEX_INITIALIZER;
 static _Atomic uint64_t g_ser_gen = 1;
 // Textures shared by storage (non-packaged): key = memory pool + offset + texture description. An NVN texture object is only a descriptor; an object rebuilt over the same storage with the same description is the same texture;
 // SMBW rebuilds its transient render targets on new objects every frame and never Finalizes them, so building one per serial leaked about 13 MB of GPU memory per frame. Textures here are kept resident by the sharing table,
-// and when the serial table replaces / deletes them it only drops its reference (defer_obj_unref), never removing them from the residency set. The sharing table does not evict (entries = distinct storage + description combinations).
+// and when the serial table replaces / deletes them it only drops its reference (defer_obj_unref), never removing them from the residency set. Entries go when their pool is finalized (mtl_alias_drop_pool)
+// or another texture takes over their storage (alias_take_over).
 typedef struct { uint64_t pool; int64_t off; nvn_texdesc d; } alias_key;
 static nvn_hmap g_alias = {.klen = sizeof(alias_key)};
+static nvn_hmap g_alias_seen = {.klen = sizeof(alias_key)};   // key → g_fence + 1 at its last lookup or creation (alias_take_over spares entries looked up lately)
 static CFMutableSetRef g_alias_set;   // Textures in the sharing table (non-owning; used to ask "is this shared")
 static uint64_t g_alias_evicted;   // shared textures evicted on pool Finalize so far (for the memory report)
 static int alias_has(id o) { return g_alias_set && o && CFSetContainsValue(g_alias_set, (__bridge const void *)o); }
@@ -1218,6 +1220,7 @@ void mtl_alias_drop_pool(const void *pool) {
     for (uint32_t j = 0; j < n; j++) {
         void *old = nvn_hm_del(&g_alias, &ks[j]);
         if (!old) continue;
+        nvn_hm_del(&g_alias_seen, &ks[j]);
         id o = CFBridgingRelease(old);
         if (g_alias_set) CFSetRemoveValue(g_alias_set, (__bridge const void *)o);
         defer_obj_release(o);
@@ -1226,6 +1229,41 @@ void mtl_alias_drop_pool(const void *pool) {
     pthread_mutex_unlock(&g_smu);
     free(ks);
     treg_drop_pool_views(pool);   // outside g_smu: the texture ID registry lock g_rmu is taken before g_smu
+}
+// A new shared texture takes over storage: entries of the same pool whose storage overlaps the new texture's under another description go, unless a live texture object still resolves
+// to them (an object rebuilt over the same storage with the same description must keep finding it: SMBW's transient render targets) or a lookup found them in the last ALIAS_IDLE submissions
+// (Breath of the Wild finalizes its transient render targets before it submits and makes them again the next frame: targets sharing storage would evict each other every frame). On NVN the memory now belongs to the new texture;
+// the old private Metal texture only held a copy nothing can name again. STEINS;GATE RE:BOOT decodes every image it shows into one scratch region of a pool that lives for good and
+// finalizes the texture before the next one: each image added an entry, 468 of them and 1.58 GB of GPU memory 24,000 frames into a new game. A finalized object resolved through g_ghost
+// keeps its own reference, so the entry's reference is only unref'd while one does; otherwise the texture is retired (deferred until the submissions that used it complete).
+// Cached texture-ID views follow g_ser_gen. Caller holds g_smu
+enum { ALIAS_IDLE = 16 };
+static uint64_t g_alias_taken;   // shared textures evicted when another texture took over their storage (for the memory report)
+static nvn_hmap g_ghost;   // defined below (finalized texture serials)
+static int serial_holds(nvn_hmap *m, id o) { for (uint32_t i = 0; i < m->cap; i++) if (m->vals[i] == (__bridge void *)o) return 1; return 0; }
+static void alias_take_over(const alias_key *nk) {
+    nvn_texlayout L; nvn_tex_layout(&nk->d, &L);
+    if (!L.size) return;
+    int64_t lo = nk->off, hi = nk->off + (int64_t)L.size;
+    uint32_t n = 0; alias_key ks[16];
+    for (uint32_t i = 0; i < g_alias.cap && n < 16; i++) {
+        if (!g_alias.vals[i]) continue;
+        alias_key k; memcpy(&k, g_alias.keys + (size_t)i * g_alias.klen, sizeof k);
+        if (k.pool != nk->pool || !memcmp(&k, nk, sizeof k) || k.off >= hi) continue;
+        nvn_texlayout kl; nvn_tex_layout(&k.d, &kl);
+        uint64_t seen = (uint64_t)(uintptr_t)nvn_hm_get(&g_alias_seen, &k);
+        if (k.off + (int64_t)kl.size <= lo || (seen && g_fence + 1 - seen < ALIAS_IDLE) || serial_holds(&g_by_serial, (__bridge id)g_alias.vals[i])) continue;
+        ks[n++] = k;
+    }
+    for (uint32_t j = 0; j < n; j++) {
+        void *old = nvn_hm_del(&g_alias, &ks[j]);
+        if (!old) continue;
+        nvn_hm_del(&g_alias_seen, &ks[j]);
+        id o = CFBridgingRelease(old);
+        if (g_alias_set) CFSetRemoveValue(g_alias_set, (__bridge const void *)o);
+        if (serial_holds(&g_ghost, o)) defer_obj_unref(o); else defer_obj_release(o);
+    }
+    if (n) { g_ser_gen++; g_alias_taken += n; }
 }
 static __unsafe_unretained id serial_get(uint64_t k) { pthread_mutex_lock(&g_smu); __unsafe_unretained id o = hm_get_id(&g_by_serial, &k); pthread_mutex_unlock(&g_smu); return o; }
 static void serial_put(uint64_t k, id o) { pthread_mutex_lock(&g_smu); id old = hm_get_id(&g_by_serial, &k); if (old) { if (alias_has(old)) defer_obj_unref(old); else defer_obj_release(old); } hm_put_id(&g_by_serial, &k, o); g_ser_gen++; pthread_mutex_unlock(&g_smu); }
@@ -1843,7 +1881,7 @@ static id<MTLTexture> tex_mtl_(const tex_t *ct) {
         return mt;
     }
     alias_key ak; memset(&ak, 0, sizeof ak); ak.pool = (uint64_t)(uintptr_t)t->pool; ak.off = t->off; ak.d = t->d;
-    pthread_mutex_lock(&g_smu); __unsafe_unretained id shared = hm_get_id(&g_alias, &ak); pthread_mutex_unlock(&g_smu);
+    pthread_mutex_lock(&g_smu); __unsafe_unretained id shared = hm_get_id(&g_alias, &ak); if (shared) nvn_hm_put(&g_alias_seen, &ak, (void *)(uintptr_t)(g_fence + 1)); pthread_mutex_unlock(&g_smu);
     if (shared) { tex_put(t->serial, shared); return shared; }
     id<MTLTexture> mt = tex_linear(t);
     if (!mt) {
@@ -1858,7 +1896,8 @@ static id<MTLTexture> tex_mtl_(const tex_t *ct) {
     res_add(mt);
     pthread_mutex_lock(&g_smu);
     if (!g_alias_set) g_alias_set = CFSetCreateMutable(NULL, 0, NULL);
-    hm_put_id(&g_alias, &ak, mt); CFSetAddValue(g_alias_set, (__bridge const void *)mt);
+    alias_take_over(&ak);
+    hm_put_id(&g_alias, &ak, mt); CFSetAddValue(g_alias_set, (__bridge const void *)mt); nvn_hm_put(&g_alias_seen, &ak, (void *)(uintptr_t)(g_fence + 1));
     pthread_mutex_unlock(&g_smu);
     tex_put(t->serial, mt);
     return mt;
@@ -1873,7 +1912,14 @@ void mtl_mem_stat(unsigned long long frame, unsigned long long rss_mb) {
     pthread_mutex_lock(&g_deferred_mu); unsigned long nd = (unsigned long)g_deferred.count; pthread_mutex_unlock(&g_deferred_mu);
     pthread_mutex_lock(&g_res_mu); unsigned long nr = (unsigned long)g_res_objects.count; pthread_mutex_unlock(&g_res_mu);
     int live = 0, peak = 0, cap = 0; nvn_dirty_stat(&live, &peak, &cap);
-    pthread_mutex_lock(&g_smu); unsigned ns = g_by_serial.n, ashared = g_alias.n, nghost = g_ghost.n; uint64_t ghost_puts = g_ghost_puts; pthread_mutex_unlock(&g_smu);
+    pthread_mutex_lock(&g_smu); unsigned ns = g_by_serial.n, ashared = g_alias.n, nghost = g_ghost.n; uint64_t ghost_puts = g_ghost_puts;
+    unsigned aorph = 0;   // shared textures no live texture object or finalized serial resolves to: kept only until their storage is taken over or their pool goes (alias_take_over)
+    { CFMutableSetRef held = CFSetCreateMutable(NULL, 0, NULL);
+      for (uint32_t i = 0; i < g_by_serial.cap; i++) if (g_by_serial.vals[i]) CFSetAddValue(held, g_by_serial.vals[i]);
+      for (uint32_t i = 0; i < g_ghost.cap; i++) if (g_ghost.vals[i]) CFSetAddValue(held, g_ghost.vals[i]);
+      for (uint32_t i = 0; i < g_alias.cap; i++) if (g_alias.vals[i] && !CFSetContainsValue(held, g_alias.vals[i])) aorph++;
+      CFRelease(held); }
+    pthread_mutex_unlock(&g_smu);
     unsigned long dead_n = 0; unsigned long long dead_mb = 0;
     // Objects read from a weak table come back retained + autoreleased: the frame hook runs on a guest thread with no autorelease pool that drains, so without this wrapper every buffer counted would be pinned for good (the readout creating the leak itself)
     int pres = 0; @autoreleasepool { pthread_mutex_lock(&g_mu); pres = g_pool_res_n; for (id<MTLBuffer> b in g_dead_pools) { dead_n++; dead_mb += b.length; } pthread_mutex_unlock(&g_mu); } dead_mb >>= 20;   // host objects held by serial (textures / packaged textures / programs): if it climbs along with GPU allocated, textures are not being released
@@ -1882,7 +1928,7 @@ void mtl_mem_stat(unsigned long long frame, unsigned long long rss_mb) {
 #if TARGET_OS_IPHONE
     snprintf(avail, sizeof avail, "%llu MB", (unsigned long long)(os_proc_available_memory() >> 20));
 #endif
-    MLOG("memory up to frame %llu: resident %llu MB, GPU allocated %llu MB, deferred-release queue %lu, residency set %lu, serial objects %u, memory pools %d (resident %d; peak %d / tracking table capacity %d; freed but alive %lu, %llu MB), shared textures %u (evicted with pools %llu in total), texture re-uploads %llu in total, per-frame arena blocks created %llu in total, finalized textures still referenced %u (small table, %llu put in total); headroom to the system memory limit %s", frame, rss_mb, gpu, nd, nr, ns, live, pres, peak, cap, dead_n, dead_mb, ashared, (unsigned long long)g_alias_evicted, (unsigned long long)g_pkg_reuploads, (unsigned long long)g_arena_made, nghost, (unsigned long long)ghost_puts, avail);
+    MLOG("memory up to frame %llu: resident %llu MB, GPU allocated %llu MB, deferred-release queue %lu, residency set %lu, serial objects %u, memory pools %d (resident %d; peak %d / tracking table capacity %d; freed but alive %lu, %llu MB), shared textures %u (%u of them unreferenced; evicted with pools %llu, on storage takeover %llu in total), texture re-uploads %llu in total, per-frame arena blocks created %llu in total, finalized textures still referenced %u (small table, %llu put in total); headroom to the system memory limit %s", frame, rss_mb, gpu, nd, nr, ns, live, pres, peak, cap, dead_n, dead_mb, ashared, aorph, (unsigned long long)g_alias_evicted, (unsigned long long)g_alias_taken, (unsigned long long)g_pkg_reuploads, (unsigned long long)g_arena_made, nghost, (unsigned long long)ghost_puts, avail);
     { void mtl_vc_stats(unsigned *, uint64_t *, uint64_t *); unsigned vn; uint64_t vh, vm; mtl_vc_stats(&vn, &vh, &vm);
       MLOG("texture views by texture (vc_get): %u textures hold cached views; %llu views reused, %llu made in total", vn, (unsigned long long)vh, (unsigned long long)vm); }
     if (g_allocprof > 0) { char ab[256]; int o = 0; for (int i = 0; i < g_alloc_n && o < 200; i++) o += snprintf(ab + o, sizeof ab - o, " #%d %llu MB", i, (unsigned long long)(g_alloc4[i].allocatedSize >> 20));

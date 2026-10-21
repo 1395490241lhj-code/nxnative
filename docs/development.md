@@ -393,6 +393,16 @@ The game's own work and its frame rate stay as they are; the host avoids work of
 - **Memory:** no system resource; the game sets a 3.14 GB heap (pool − 64 MB) in the 4 GB layout.
 - **Mac input:** `DM_KEYS="f700:A*1000/24"` (A every 24 frames) goes through the notices, the title and a new game into the opening movie; the first episode's dialogue starts at about frame 6,000 and its trial at about 20,000.
 
+**STEINS;GATE RE:BOOT (`01008BC024FDE000`)**
+- **Status:** the logos, the title menu (its background is a movie), a new game through the prologue movies into the story, the config pages, save and quick load, at 60 fps with music, voices and movie sound; no red line in 15 minutes of story. Playable on an iPhone.
+- **Engine:** M2's ADV engine (`advengine`, m2lib, the E-mote player for the animated characters) on SDK 20.5.17, update 1.0.3 (v131072). `subsdk0` is the SDK's movie library: its `movie::Extractor` demuxes the 87 H.264 / AAC MP4 movies and the host decodes them (output 4, NV12 buffers). Everything else is in the game's own PSB archives (`*_info.psb.m` + `*_body.bin`), which it reads itself.
+- **Shaders:** 487 in five BNSH in `main` (483 pixel, 4 vertex); RomFS holds none.
+- **Host changes:** `nn::audio::SetAudioOutVolume` / `GetAudioOutVolume` (the movie sound's AudioOut, set every frame; [03](agents/03-bringup.md)); the storage-sharing texture table drops entries whose storage another texture takes over, which kept GPU memory near 1 GB where it used to grow with every picture shown ([04](agents/04-graphics.md)).
+- **Graphics:** 1280x720 in a cropped 1920x1080 window in both modes, by the game's own choice; the backgrounds' scratches, dust and colour fringes look like the art's own film effect.
+- **Input:** buttons only: it reads the touch screen in handheld mode but takes nothing from it, so the profile keeps the default docked mode and the 2D pad layout (ZL / ZR phone trigger; quick save on R3 needs the 3D layout).
+- **Memory:** no system resource; the game sets a 3.05 GB heap in the 4 GB layout. About 1.0–1.1 GB resident in the story on the Mac.
+- **Mac input:** A on the title, Right to CONTINUE, A, Right to QUICK LOAD, A, A on the save, Left to OK, A loads the quick save. The menu takes presses late while its background movie starts (100 to 500 frames after the title's A), so check a `DM_KEYS` route's frames with screenshots.
+
 ## Tools (`dm/tools`)
 
 | Tool | What it does |

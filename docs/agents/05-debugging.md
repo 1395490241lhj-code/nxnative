@@ -48,6 +48,10 @@ The `!xN` heap walk takes the layout of the game's sead version from `DM_PROBE_H
 
 `DM_PROBE_ALL=1` adds x9–x18; `DM_PROBE_X2=<bytes>` dumps the memory x2 points to.
 
+**Who writes a word: `DM_PROBE_WATCH=<address>[+<length>]`** (hex guest address, 8 bytes by default; the bytes must lie in one 16 KB host page). The host write-protects that page as soon as it is writable and keeps it protected: the fault handler carries out every store that lands on the page through a second, writable mapping of it (STR / STUR / STP of general and SIMD registers in their immediate, pre- and post-index forms, register-offset STR, DC ZVA), so the stores of a busy page all pass through it. A store that reaches the watched bytes prints `WATCH … store of N bytes at …: old → new`, the thread, pc, lr and a backtrace. Other instructions (atomics, exclusives) get a `not emulated` line once per pc and run on an unprotected page, protected again a millisecond later. A guest object sits at the same address in every run (the guest heap is laid out the same), so take the address from a probe's register dump first. STEINS;GATE RE:BOOT's render size setting (engine object + 0x6000): the static search for stores with that offset, conditional probes on 25 candidate stores and a wrapper around the host's `memcpy` / `memset` (the guest's go straight to the host's libc, `hle_table.c`, where guest probes cannot see them) all found nothing; a watch that unprotected the page for every fault missed the write among the bursts of stores to the engine object's page; this one found it on the first run (`main+0x389e90`, a setter its start-up code calls with 0).
+
+A probe's backtrace reads each frame with `vm_read_overwrite`: code built without frame pointers keeps data in x29, and the walk used to fault in the host on such a value (x29 = 0x430 at `main+0x38921c` in the same game).
+
 Use it when lldb is unavailable: after macOS revokes the debugger authorization (`DevToolsSecurity -status` says developer mode is disabled), `lldb` launches hang waiting for a GUI approval prompt. `sudo DevToolsSecurity -enable` (run by the user) restores it.
 
 ## lldb

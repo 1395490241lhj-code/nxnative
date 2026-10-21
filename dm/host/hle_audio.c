@@ -20,6 +20,7 @@ typedef struct {
     void *event;                       // Guest SystemEvent: signaled whenever a buffer is released
     int ch;
     _Atomic int state;
+    _Atomic uint32_t vol;              // SetAudioOutVolume gain as float bits (1.0 at open), applied to the samples as they are pulled
     gbuf *q[QMAX]; _Atomic uint32_t q_head, q_tail;       // Pending: written by the game side, read by the output side
     gbuf *rel[RELMAX]; _Atomic uint32_t rel_head, rel_tail; // Released: written by the output side, read by the game side
     uint64_t pos;                      // Bytes already played of the current block
@@ -83,6 +84,7 @@ static void *event_notify(void *p) {
 // Take n bytes from the pending queue and hand them to the output side; once a whole block has played, move it to released and notify the ordinary thread.
 static void pull(aout *a, uint8_t *dst, uint64_t n) {
     int released = 0;
+    int16_t *s16 = (int16_t *)dst; uint64_t ns = n / 2;
     uint32_t qh = atomic_load_explicit(&a->q_head, memory_order_relaxed);
     while (n) {
         uint32_t qt = atomic_load_explicit(&a->q_tail, memory_order_acquire);
@@ -103,6 +105,11 @@ static void pull(aout *a, uint8_t *dst, uint64_t n) {
             atomic_store_explicit(&a->q_head, qh, memory_order_release);
             a->pos = 0; released = 1;
         }
+    }
+    uint32_t vb = atomic_load_explicit(&a->vol, memory_order_relaxed);
+    if (vb != 0x3f800000u) {   // the output's volume (SetAudioOutVolume), as the audout session applies it to the PCM16 it plays; saturating
+        float v; memcpy(&v, &vb, 4);
+        for (uint64_t i = 0; i < ns; i++) { float x = s16[i] * v; s16[i] = (int16_t)(x > 32767.f ? 32767.f : x < -32768.f ? -32768.f : x); }
     }
     if (released) {
         if (a->event) notify_release(a);   // the notify thread only signals the guest's event: outputs without one (the host's renderer output, games that poll) need no wake-up
@@ -231,7 +238,7 @@ static Result au_open_at(void *g, void *ev, const char *name, const uint8_t *par
     if (rate && rate != RATE) die("AudioOut sample rate %d not supported (48 kHz only)", rate);
     aout *a = calloc(1, sizeof *a);
     pthread_mutex_init(&a->m, NULL); a->event = ev; a->ch = ch;
-    atomic_init(&a->state, STATE_STOPPED);
+    atomic_init(&a->state, STATE_STOPPED); atomic_init(&a->vol, 0x3f800000u);
     atomic_init(&a->q_head, 0); atomic_init(&a->q_tail, 0);
     atomic_init(&a->rel_head, 0); atomic_init(&a->rel_tail, 0);
     atomic_init(&a->null_run, 0); atomic_init(&a->notify_run, 1);
@@ -305,6 +312,13 @@ HLE_FORCE("_ZN2nn5audio21GetAudioOutSampleRateEPKNS0_8AudioOutE", "sample rate",
 HLE_FORCE("_ZN2nn5audio23GetAudioOutChannelCountEPKNS0_8AudioOutE", "channel count", int, h_au_Ch, const void *g) { return ao(g)->ch; }
 HLE_FORCE("_ZN2nn5audio15GetAudioOutNameEPKNS0_8AudioOutE", "device name; the host has only the default device", const char *, h_au_Name, const void *g) { (void)g; return "DeviceOut"; }
 HLE_FORCE("_ZN2nn5audio23GetAudioOutSampleFormatEPKNS0_8AudioOutE", "sample format; PCM16 only", int, h_au_Fmt, const void *g) { (void)ao(g); return FMT_PCM16; }
+// STEINS;GATE RE:BOOT (SDK 20) sets its movie sound's output volume right after opening it; the SDK's versions call the audout session the host never made (a null read at sdk+0x1f2314)
+HLE_FORCE("_ZN2nn5audio17SetAudioOutVolumeEPNS0_8AudioOutEf", "output volume; a gain on the samples the host plays", void, h_au_SetVol, void *g, float v) {
+    if (!(v >= 0.f)) v = 0.f; uint32_t b; memcpy(&b, &v, 4); atomic_store_explicit(&ao(g)->vol, b, memory_order_relaxed);
+}
+HLE_FORCE("_ZN2nn5audio17GetAudioOutVolumeEPKNS0_8AudioOutE", "output volume", float, h_au_GetVol, const void *g) {
+    uint32_t b = atomic_load_explicit(&ao(g)->vol, memory_order_relaxed); float v; memcpy(&v, &b, 4); return v;
+}
 
 HLE_FORCE("_ZN2nn5audio21SetAudioOutBufferInfoEPNS0_14AudioOutBufferEPvmm", "buffer description; written into the first 24 bytes of the guest struct", void, h_au_SetBuf, gbuf *b, void *p, uint64_t cap, uint64_t size) {
     b->ptr = p; b->cap = cap; b->size = size;
