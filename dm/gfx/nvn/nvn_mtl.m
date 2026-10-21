@@ -658,6 +658,8 @@ static void ser_gate(void) {
 }
 // Metal 4 conservative barriers (first version): a consumer barrier at the start of an encoder (all prior work → this encoder) and a producer barrier at the end (this encoder and earlier → later encoders).
 // Only the one at the start is not enough: t_rt_range 'pass 1 → pass 2 → copy' read back black, and after adding the end barrier it is 19/19. Old-queue encoders (upload / diagnostics / present) do not go through these barriers.
+static int g_pass_swrite;   // the open draw pass has shader writes (swrite_note)
+static void img_fit_upgrade(void); static int g_imfit_npend;   // textures an image slot needs a format view of (img_fit), upgraded before the next draw pass opens
 static int g_last_end_relaxed, g_game_barrier;   // the last encoder ended was a draw pass with the relaxed end barrier (nothing else since); the game issued nvnCommandBufferBarrier since the last draw pass began
 static uint64_t g_bar_skip, g_bar_full;            // draw passes begun without / with the consumer barrier (DM_NVN_BARRIER=game)
 static inline void m4_end(id e) {
@@ -1156,7 +1158,7 @@ void mtl_drain(void) { present_drop_for_suspend(); mtl_present_flush(); mtl_init
 
 // ================= Render replay =================
 #include "../../host/front.h"
-static int g_red_once[105];
+static int g_red_once[108];
 #define RED_ONCE(k, ...) do { if (!g_red_once[k]++) MLOG("[RED] " __VA_ARGS__); } while (0)
 // NVN vertex streams 0–15 → Metal vertex buffer slots: 0–13 go to 16–29 (30 is the constant fallback buffer), 14 and 15 to 14 and 15. Metal has only the 31 slots 0–30; translated shaders use only buffer(0) (the argument buffer),
 // and the host's own vertex functions read no vertex buffers. 13 Sentinels uses stream 15, and the old 16 + stream went out of range (Metal assertion: buffer index (31) must be < 31)
@@ -2318,8 +2320,9 @@ static void bare_dims(NSUInteger *w, NSUInteger *h);
 static id<MTL4RenderCommandEncoder> rp_begin_ex_(int clear_only) {
     if (g_enc) return g_enc;
     memset(g_zskip_cand_ok, 0, sizeof g_zskip_cand_ok);
-    g_enc_mode = clear_only;
+    g_enc_mode = clear_only; g_pass_swrite = 0;
     if (!R.has_rt) { RED_ONCE(3, "no render target set before the draw"); return nil; }
+    if (g_imfit_npend) img_fit_upgrade();   // no pass is open here: the upgrade's copy may run (img_fit)
     // The version of the attachment-range candidate is taken before capturing any attachment; if it changes during setup, there is no continuation.
     uint64_t reg0 = 0, ser0 = 0, dirty0 = 0;
     if (rt_range_on()) { reg0 = g_reg_gen; ser0 = g_ser_gen; }
@@ -2851,7 +2854,8 @@ void mtl_prog_release(prog_t *p) { if (p->serial) serial_del(p->serial); }
 // At registration the whole texture object is snapshotted (NVN semantics: the descriptor has been written into the pool); view: the MTLTexture for that ID (a view or the base texture, held via CFBridgingRetain) and the serial-table / guest-write generations at the time it was obtained
 typedef struct { tex_t t; int ok; view_t v; int has_v; void *view; uint64_t view_id, view_rid, view_ser, view_dirty; int view_pkg;   // view_pkg: CPU-written (packaged); only those depend on guest writes (view_dirty)
                  void *alt, *alt_of; uint64_t alt_rid; uint8_t alt_type;   // alt: compatible view used when the shader's declared type differs from view (tex_fit), alt_of = the view it was built from
-                 void *ar, *ar_of; uint64_t ar_rid; } treg_t;              // ar: the alpha-from-red view for the profile's alpha_from_red shaders (tex_alpha_red), ar_of = the view it was built from
+                 void *ar, *ar_of; uint64_t ar_rid;                         // ar: the alpha-from-red view for the profile's alpha_from_red shaders (tex_alpha_red), ar_of = the view it was built from
+                 void *im, *im_of; uint64_t im_rid; } treg_t;              // im: the view an image slot reads in the shader's pixel class (img_fit), im_of = the view it was built from
 static treg_t *g_treg; static int g_ntreg;
 // Lock-free copy of texture ID → serial (the replay hot path only needs the serial: store lookahead index, binding set of the clear-only hoist): texture IDs are 20 bits, fixed 1M entries (BSS, only touched pages are used),
 // release write at registration, relaxed atomic read on the reader side, without entering g_rmu (the former h_ser locked and unlocked on every lookup, thousands of times per frame in the camp)
@@ -2859,7 +2863,8 @@ static _Atomic uint64_t g_tser[1 << 20];
 static samp_par *g_sreg; static uint8_t *g_sreg_ok; static void **g_sview; static uint64_t *g_srid; static int g_nsreg;   // g_sview: sampler ID → MTLSamplerState (retained)
 // Memory pool Finalize: for texture IDs whose registered texture lives on this pool, drop the cached MTLTexture (view or base texture). The cache used to be released only when the ID was registered again,
 // so a linear texture built directly on a pool kept the whole pool buffer alive (6 to 17 finalized 16 MB pool buffers stayed alive in Engage's title demo). If the ID is still used, the next lookup rebuilds it on the slow path
-static void treg_drop_ar(treg_t *r) { if (r->ar) { defer_obj_unref((__bridge id)r->ar); CFRelease(r->ar); r->ar = r->ar_of = NULL; r->ar_rid = 0; } }
+static void treg_drop_ar(treg_t *r) { if (r->ar) { defer_obj_unref((__bridge id)r->ar); CFRelease(r->ar); r->ar = r->ar_of = NULL; r->ar_rid = 0; }
+                                     if (r->im) { defer_obj_unref((__bridge id)r->im); CFRelease(r->im); r->im = r->im_of = NULL; r->im_rid = 0; } }   // and the image class view (img_fit)
 // Texture views by texture serial and view parameters, beside the per-ID view: KTGL (Age of Calamity) registers a texture into the next ID of a ring before every bind (about 21,000
 // registrations a frame in battle after the first cutscene, 5 in 6 of them a different texture than the ID held), so the per-ID view was rebuilt for nearly every bind: half the
 // registrations ended in a new Metal texture view, 45% of the replay's time. A hit is checked against the current base texture (re-uploads and format-view upgrades replace it).
@@ -3092,6 +3097,50 @@ static id<MTLTexture> tex_alpha_red(int tid, id<MTLTexture> t, uint64_t *rid) {
     r->ar = (void *)CFBridgingRetain(v); r->ar_of = (__bridge void *)t; r->ar_rid = v.gpuResourceID._impl;
     *rid = r->ar_rid; return v;
 }
+// Pixel class of a Metal format as a shader's texture type sees it (NVN_DPF_*): the Uint / Sint formats, everything else reads as float
+static int mtl_pf_dpf(MTLPixelFormat pf) {
+    switch ((int)pf) {
+        case 13: case 23: case 33: case 53: case 63: case 73: case 91: case 103: case 113: case 123: return NVN_DPF_UINT;
+        case 14: case 24: case 34: case 54: case 64: case 74: case 104: case 114: case 124: return NVN_DPF_SINT;
+    }
+    return NVN_DPF_FLOAT;
+}
+// An image slot the shader declares as uint / int holding a texture of another class: on the Switch the shader's image format decides how the texel's bits are read. FINAL FANTASY TACTICS -
+// The Ivalice Chronicles' UI composite blends into the RGBA8 window texture in software, loading it as r32ui and unpacking the four bytes (uirender.tec, fragment 4cf1975ed1e36590); bound as
+// it was, an RGBA8Unorm texture in a texture2d<uint> argument read undefined values and translucent UI came out yellow and white. The slot gets a view of the same texel size in the
+// shader's class; a texture made without the format-view usage is upgraded before the next draw pass (img_fit_upgrade), three textures in that game. Caller holds g_rmu
+static int g_imfit_pend[16];
+static void img_fit_upgrade(void) {
+    pthread_mutex_lock(&g_rmu);
+    for (int i = 0; i < g_imfit_npend; i++) { int tid = g_imfit_pend[i];
+        if (tid <= 0 || tid >= g_ntreg || !g_treg[tid].ok) continue;
+        id<MTLTexture> b = tex_mtl(&g_treg[tid].t); if (b.parentTexture) b = b.parentTexture;
+        if (b && !(b.usage & MTLTextureUsagePixelFormatView)) tex_upgrade_pfv(&g_treg[tid].t, b, MTLPixelFormatR32Uint); }
+    g_imfit_npend = 0;
+    pthread_mutex_unlock(&g_rmu);
+}
+static id<MTLTexture> img_fit(int tid, id<MTLTexture> t, int dpf, uint64_t *rid) {
+    size_t n = mtl_pf_bytes(t.pixelFormat); int u = dpf == NVN_DPF_UINT;
+    MTLPixelFormat pf = n == 1 ? (u ? MTLPixelFormatR8Uint : MTLPixelFormatR8Sint) : n == 2 ? (u ? MTLPixelFormatR16Uint : MTLPixelFormatR16Sint) : n == 4 ? (u ? MTLPixelFormatR32Uint : MTLPixelFormatR32Sint)
+                      : n == 8 ? (u ? MTLPixelFormatRG32Uint : MTLPixelFormatRG32Sint) : n == 16 ? (u ? MTLPixelFormatRGBA32Uint : MTLPixelFormatRGBA32Sint) : MTLPixelFormatInvalid;
+    id<MTLTexture> base = t.parentTexture ? t.parentTexture : t;
+    if (pf == MTLPixelFormatInvalid || tid <= 0 || tid >= g_ntreg) {
+        RED_ONCE(106, "image read as %s in the shader, texture of Metal format %lu (texture ID %d): no view of that class, bound as is (reads undefined)", u ? "uint" : "int", (unsigned long)t.pixelFormat, tid); return nil; }
+    if (!(base.usage & MTLTextureUsagePixelFormatView)) {   // made without the format-view usage (it costs lossless compression, so textures get it only when needed): upgraded before the next
+        int seen = 0; for (int i = 0; i < g_imfit_npend; i++) seen |= g_imfit_pend[i] == tid;   // draw pass opens, as an upgrade copies the texture and so cannot run inside this draw's pass;
+        if (!seen && g_imfit_npend < 16) g_imfit_pend[g_imfit_npend++] = tid;                  // until then the slot is bound as is
+        return nil; }
+    treg_t *r = &g_treg[tid];
+    if (r->im && r->im_of == (__bridge void *)t && ((__bridge id<MTLTexture>)r->im).pixelFormat == pf) { *rid = r->im_rid; return (__bridge id<MTLTexture>)r->im; }
+    if (r->im) { defer_obj_unref((__bridge id)r->im); CFRelease(r->im); r->im = r->im_of = NULL; r->im_rid = 0; }
+    NSUInteger l0 = t.parentTexture ? t.parentRelativeLevel : 0, s0 = t.parentTexture ? t.parentRelativeSlice : 0;
+    NSUInteger ns = t.textureType == MTLTextureType3D ? 1 : t.arrayLength * (t.textureType == MTLTextureTypeCube || t.textureType == MTLTextureTypeCubeArray ? 6 : 1);
+    id<MTLTexture> v = [base newTextureViewWithPixelFormat:pf textureType:t.textureType levels:NSMakeRange(l0, t.mipmapLevelCount) slices:NSMakeRange(s0, ns)];
+    if (!v) { RED_ONCE(107, "cannot create the image view of class %s (texture ID %d, Metal format %lu)", u ? "uint" : "int", tid, (unsigned long)t.pixelFormat); return nil; }
+    { static int once; if (!once++) MLOG("image read in another class than its texture: first case texture ID %d Metal format %lu → %lu", tid, (unsigned long)t.pixelFormat, (unsigned long)pf); }
+    r->im = (void *)CFBridgingRetain(v); r->im_of = (__bridge void *)t; r->im_rid = v.gpuResourceID._impl;
+    *rid = r->im_rid; return v;
+}
 static inline __attribute__((always_inline)) uint64_t tex_fast_rid(int tid, void **out) {
     if (tid > 0 && tid < g_ntreg && g_treg[tid].ok && g_treg[tid].view && g_treg[tid].view_ser == g_ser_gen && (!g_treg[tid].view_pkg || g_treg[tid].view_dirty == nvn_dirty_now())) { if (out) *out = g_treg[tid].view; return g_treg[tid].view_rid; }
     id<MTLTexture> t = tex_by_id(tid); if (out) *out = (__bridge void *)t; return t ? t.gpuResourceID._impl : 0;
@@ -3194,6 +3243,16 @@ static void bare_dims(NSUInteger *w, NSUInteger *h) {
     double x1 = S.has_vp ? MAX(S.vp[0][0], S.vp[0][0] + S.vp[0][2]) : R.has_sc ? (double)R.sc.x + R.sc.w : 1;
     double y1 = S.has_vp ? MAX(S.vp[0][1], S.vp[0][1] + S.vp[0][3]) : R.has_sc ? (double)R.sc.y + R.sc.h : 1;
     *w = (NSUInteger)MIN(MAX(ceil(x1), 1.0), 16384.0); *h = (NSUInteger)MIN(MAX(ceil(y1), 1.0), 16384.0);
+}
+// The open draw pass has a draw whose shaders write an image or a storage buffer. NVN orders later draws after those writes when the game asks with nvnCommandBufferBarrier
+// (ORDER_FRAGMENTS / ORDER_FRAGMENTS_TILED); Metal gives no order between draws of one render pass for shader writes, so such a barrier ends the pass and the next draw opens one
+// behind the full consumer barrier. FINAL FANTASY TACTICS - The Ivalice Chronicles composites its UI into the window texture in software, a read-modify-write of the image by draw after
+// draw in one attachment-less pass with barrier bits 0x12 between them: without the split a later element read the window before the earlier one had landed and wrote the old pixels
+// back (the dialog boxes had holes the size of their text)
+static void swrite_note(NvProg *pr) {
+    if (!pr || g_pass_swrite) return;
+    for (int st = 0; st < 6; st++) { __unsafe_unretained NvShader *sh = pr->sh[st]; if (!sh) continue;
+        for (int i = 0; i < sh->rf.nb; i++) if (sh->rf.b[i].rw && (sh->rf.b[i].kind == NVN_RB_IMG || sh->rf.b[i].kind == NVN_RB_IMGA || sh->rf.b[i].kind == NVN_RB_SBUFP)) { g_pass_swrite = 1; return; } }
 }
 static void udc_note_draw(NvProg *pr) {
     if (!tbdr_on()) {   // without the TBDR set only the duplicate-slot report below is live (the zero-source skip and the unwritten-attachment store are part of the set): skip the per-draw scans
@@ -3983,6 +4042,7 @@ static int encode_args_(id<MTLCommandEncoder> en, NvShader *sh, int nvn_stage, i
             void *tv = NULL; uint64_t trid = tid ? tex_fast_rid(tid, &tv) : 0; __unsafe_unretained id<MTLTexture> t = (__bridge id<MTLTexture>)tv;
             if (passdump()) PD("W %llu st%d reg%d tid=%d %s ser=%llu", g_stat_pass, nvn_stage, reg, tid, t ? "real" : "dummy", t && tid < g_ntreg ? g_treg[tid].t.serial : 0ull);
             if (t && !(t.usage & MTLTextureUsageShaderWrite)) { RED_ONCE(32, "texture bound to an image slot lacks the shader-write usage (texture ID %d)", tid); t = nil; }
+            if (t && b->dpf != NVN_DPF_FLOAT && mtl_pf_dpf(t.pixelFormat) != b->dpf) { uint64_t r2 = 0; id<MTLTexture> v = img_fit(tid, t, b->dpf, &r2); if (v) { t = v; trid = r2; } }   // see img_fit
             if (!t) { t = dummy_img(b->dtt, b->dpf); trid = g_dummy_img_rid[b->dtt & 7][b->dpf & 3]; }   // Unbound: D3D semantics discard the write - write into a dedicated dummy texture so the set that reads 0 is not polluted
             slots[aid] = trid;
             USE(t, MTLResourceUsageRead | MTLResourceUsageWrite);
@@ -6141,6 +6201,7 @@ static void draw(const p_draw *dw, const p_draw_idx *di) {
     rr_snap(dw,di);
 #endif
     udc_note_draw(pr);
+    swrite_note(pr);
     // A draw with 0 primitives (the game does send count=0) draws no pixels, so skip encoding; Metal requires the count to be non-zero, otherwise the validation layer aborts on the spot (measured on the camp / wilderness / combat pages)
     if ((dw && dw->ind) || (di && di->ind)) {   // DrawArraysIndirect / DrawElementsIndirect: NVN's argument records {count, instances, first, base instance} and {count, instances, first index,
         // base vertex, base instance} have the layouts of MTLDrawPrimitivesIndirectArguments and MTLDrawIndexedPrimitivesIndirectArguments; quads, fans and 8-bit indices use the converted ones (ixc_run)
@@ -6548,6 +6609,17 @@ static void copy_t2t(const p_copy_t2t *c) {
     }
 }
 
+// The colour channels a Metal format has, as a channel write mask: a clear whose mask covers them all writes every texel whole (FINAL FANTASY TACTICS - The Ivalice Chronicles clears an
+// R8 render target with mask 0x1)
+static unsigned mtl_pf_chmask(MTLPixelFormat pf) {
+    switch ((int)pf) {
+        case 1: return 0x8;                                                                                      // A8
+        case 10: case 11: case 12: case 13: case 14: case 20: case 22: case 23: case 24: case 25: case 53: case 54: case 55: return 0x1;   // R8 / R16 / R32
+        case 30: case 31: case 32: case 33: case 34: case 60: case 62: case 63: case 64: case 65: case 103: case 104: case 105: return 0x3;   // RG8 / RG16 / RG32
+        case 40: case 92: case 93: return 0x7;                                                                   // B5G6R5 / RG11B10F / RGB9E5
+    }
+    return 0xf;
+}
 // GPU: clear a texture region with the given value (previously mislisted as a no-op, called 5 times at initialization; the initial value of a Metal private texture is undefined, and the game relies on the cleared initial value).
 // Whole level and whole face, all four channels written -> open one clear-only render pass per layer / depth slice (the hardware converts the clear value by the texture format, including integer and depth);
 // view with changed format: clear on a view of that format; partial region, partial channels, compressed / packaged textures (no render target usage): report a failure, to be implemented
@@ -6560,7 +6632,7 @@ static void clear_tex(const p_clear_tex *c) {
     unsigned lv = c->has_view && c->view.set_levels ? c->view.base_level : 0, l0 = c->has_view && c->view.set_layers ? c->view.min_layer : 0;
     NSUInteger w = MAX(t.width >> lv, 1u), h = MAX(t.height >> lv, 1u);
     int is3d = t.textureType == MTLTextureType3D, nz = c->r.depth ? c->r.depth : 1;
-    if (!(t.usage & MTLTextureUsageRenderTarget) && !mtl_fmt_block(t.pixelFormat) && t.sampleCount == 1 && !c->r.xoffset && !c->r.yoffset && (NSUInteger)c->r.width == w && (NSUInteger)c->r.height == h && (c->mask & 0xf) == 0xf)
+    if (!(t.usage & MTLTextureUsageRenderTarget) && !mtl_fmt_block(t.pixelFormat) && t.sampleCount == 1 && !c->r.xoffset && !c->r.yoffset && (NSUInteger)c->r.width == w && (NSUInteger)c->r.height == h && (c->mask & mtl_pf_chmask(t.pixelFormat)) == mtl_pf_chmask(t.pixelFormat))
         t = tex_upgrade(c->tex, t, MTLTextureUsageRenderTarget, t.pixelFormat);   // a whole-level clear of a texture made without render-target use (packaged): give it that use
     if (c->has_view && c->view.set_format) {   // View with changed format: the clear value is interpreted in the view format (all 5 of the game's calls are the ui version with an integer view), and the clear is done on a view of the same format
         uint32_t vpf = 0; uint8_t swz[4];
@@ -6574,7 +6646,7 @@ static void clear_tex(const p_clear_tex *c) {
     }
     MTLPixelFormat pf = t.pixelFormat;
     int depth = pf == MTLPixelFormatDepth32Float || pf == MTLPixelFormatDepth16Unorm || pf == MTLPixelFormatDepth32Float_Stencil8, stencil = pf == MTLPixelFormatStencil8 || pf == MTLPixelFormatDepth32Float_Stencil8;
-    if (c->r.xoffset || c->r.yoffset || (NSUInteger)c->r.width != w || (NSUInteger)c->r.height != h || (c->mask & 0xf) != 0xf
+    if (c->r.xoffset || c->r.yoffset || (NSUInteger)c->r.width != w || (NSUInteger)c->r.height != h || (c->mask & mtl_pf_chmask(pf)) != mtl_pf_chmask(pf)
         || !(t.usage & MTLTextureUsageRenderTarget)) {
         RED_ONCE(44, "texture clear case not implemented: region %d,%d %dx%d (level size %lux%lu) mask %#x render-target capable %d (format %#x flags %#x)", c->r.xoffset, c->r.yoffset, c->r.width, c->r.height,
                  (unsigned long)w, (unsigned long)h, c->mask, !!(t.usage & MTLTextureUsageRenderTarget), c->tex->d.format, c->tex->d.flags);
@@ -6890,7 +6962,11 @@ void mtl_exec(const uint8_t *p) {
             case OP_COPY_T2T: copy_t2t(a); break;
             case OP_CLEAR_TEX: clear_tex(a); break;
             case OP_DISPATCH: dispatch(a); break;
-            case OP_BARRIER: { int32_t bits; memcpy(&bits, a, 4); if (bits) g_game_barrier = 1; break; }   // ordered at the next draw pass (barrier_game)
+            case OP_BARRIER: { int32_t bits; memcpy(&bits, a, 4);   // ordered at the next draw pass (barrier_game); inside a pass with shader writes, the pass ends first (swrite_note)
+                int split = g_enc && g_pass_swrite && (bits & (NVN_BARRIER_ORDER_FRAGMENTS_BIT | NVN_BARRIER_ORDER_FRAGMENTS_TILED_BIT));
+                PD("I %llu barrier bits %#x%s", g_stat_pass, bits, split ? ": ends the pass (shader writes)" : g_enc ? " (render pass open)" : "");
+                if (split) { rp_end(); static int once; if (!once++) MLOG("a game barrier (bits %#x) after shader writes in a draw pass: the pass ends there (first case pass %llu)", bits, (unsigned long long)g_stat_pass); }
+                if (bits) g_game_barrier = 1; break; }
             case OP_SET_TEX_POOL: case OP_SET_SAMP_POOL: break;
             default: break;
         }

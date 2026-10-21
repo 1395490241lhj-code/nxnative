@@ -49,7 +49,7 @@ int nvn_refl_from_json(NSDictionary *j, nvn_refl *o, char *err, int errlen) {
             // SPIRV-Cross's MSL 2.3 image atomics: the image (texture_buffer / texture2d… <uint> or <int>) and, for the atomics, a device pointer to the same memory, <image name>_atomic, which the build
             // reads as a second image of the same slot. Octopath Traveler 0: 2,084 shaders (Unreal's buffer images: cp_i_cb2_4C_r32ui_atomic)
             if ([k isEqualToString:@"img"] && reg >= 0 && [nm isKindOfClass:[NSString class]] && [nm hasSuffix:@"_atomic"] && [ty isKindOfClass:[NSString class]] && [ty hasPrefix:@"device atomic_"]) {
-                r->kind = NVN_RB_IMGA; o->nb++; continue;
+                r->kind = NVN_RB_IMGA; r->rw = 1; o->nb++; continue;
             }
             if ([k isEqualToString:@"cbuf"]) r->kind = NVN_RB_CBUF;
             else if ([k isEqualToString:@"samp"]) r->kind = NVN_RB_SAMP;
@@ -58,7 +58,8 @@ int nvn_refl_from_json(NSDictionary *j, nvn_refl *o, char *err, int errlen) {
             else if ([k isEqualToString:@"tex_ubo"]) { r->kind = NVN_RB_TEXU; dummy_kind(b[@"msl_type"], &r->dtt, &r->dpf); r->off = (uint16_t)[b[@"off"] intValue]; o->bindless = 1; }
             else if ([k isEqualToString:@"samp_ubo"]) { r->kind = NVN_RB_SAMPU; r->off = (uint16_t)[b[@"off"] intValue]; o->bindless = 1; }
             else if ([k isEqualToString:@"samp_id"]) r->kind = NVN_RB_SAMPI;
-            else if ([k isEqualToString:@"img"]) { r->kind = NVN_RB_IMG; dummy_kind(b[@"msl_type"], &r->dtt, &r->dpf); }
+            else if ([k isEqualToString:@"img"]) { r->kind = NVN_RB_IMG; dummy_kind(b[@"msl_type"], &r->dtt, &r->dpf);   // rw: the shader writes it (access::write / read_write; a load-only view of the slot is not)
+                r->rw = [ty isKindOfClass:[NSString class]] && ([ty containsString:@"access::write"] || [ty containsString:@"access::read_write"]); }
             else if ([k isEqualToString:@"tbuf"]) { r->kind = NVN_RB_TBUF; uint8_t tt; dummy_kind(b[@"msl_type"], &tt, &r->dpf); }
             else if ([k isEqualToString:@"sbuf"]) { r->kind = NVN_RB_SBUFP; r->rw = sbuf_rw(b); }
             else if ([k isEqualToString:@"ubo_ptr"]) r->kind = NVN_RB_UBOP;

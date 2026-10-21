@@ -302,12 +302,11 @@ def pfs0_names(path):   # NSP = PFS0: list the file names inside
     return [strs[o:strs.index(b'\0', o)].decode(errors='replace') for o in (struct.unpack_from('<I', ent, i * 0x18 + 0x10)[0] for i in range(n))]
 
 
-def title_of(path):   # [title ID] in the file name, else the ticket name (the first 16 digits of the rights ID = title ID)
-    m = re.search(r'\[([0-9A-Fa-f]{16})\]', path.name)
-    if m: return int(m.group(1), 16)
-    for n in pfs0_names(path):
+def title_of(path):   # the ticket name (the first 16 digits of the rights ID = title ID), else [title ID] in the file name
+    for n in pfs0_names(path):   # the ticket first: a file name's tag can be wrong (FFT's base NSP is tagged …0001, its ticket is …0000)
         if re.match(r'[0-9A-Fa-f]{32}\.tik$', n): return int(n[:16], 16)
-    return None
+    m = re.search(r'\[([0-9A-Fa-f]{16})\]', path.name)
+    return int(m.group(1), 16) if m else None
 
 
 def version_of(path):

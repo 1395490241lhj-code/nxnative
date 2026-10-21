@@ -487,7 +487,7 @@ void svc_thread_dump(void) {
             if (!vm_read_overwrite(mach_task_self(), t->waddr, 4, (vm_address_t)&w, &g2)) snprintf(own, sizeof own, " owner %#x", w & ~WAITERS_BIT); }
         if (t->wkind == 2 && t->waddr) { uint32_t w = 0, k = 0; vm_size_t g2 = 0;              // Condition wait: current values of the associated lock word and the condition key (the deadlock dump lacked this item)
             vm_read_overwrite(mach_task_self(), t->waddr, 4, (vm_address_t)&w, &g2); vm_read_overwrite(mach_task_self(), t->wkey, 4, (vm_address_t)&k, &g2);
-            snprintf(own, sizeof own, " lock word %#x condvar key %#llx=%#x", w, t->wkey, k); }
+            snprintf(own, sizeof own, " lock word %#x condvar key %#llx=%#x wait #%llu", w, t->wkey, k, (unsigned long long)t->wseq); }   // wait #: the order the waiters arrived in, which SignalProcessWideKey wakes them in at equal priority
         uint8_t raw[64]; vm_size_t g3 = 0;                                                   // Raw 64 bytes of the object being waited on (the structure holding the read-write lock / condition variable): to see the counts and the owner
         int have_raw = (t->wkind == 1 || t->wkind == 2 || t->wkind == 3) && t->waddr && !vm_read_overwrite(mach_task_self(), t->waddr & ~0xfull, 64, (vm_address_t)raw, &g3) && g3 == 64;
         char life[96]; uint64_t nowns = now_ns();

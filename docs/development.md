@@ -331,6 +331,14 @@ The game's own work and its frame rate stay as they are; the host avoids work of
 - **Saves:** the game writes a slot when it reaches the map, not when the slot is picked.
 - **Mac input:** a fresh save goes through the title (L+R), a new slot, the storybook and the house to the map with `DM_KEYS="20:L+R,26:A,32:A,38:A,44:A,50:A,56:A*20/3,120:LRight~4,125:A,127:LRight~3,131:A*10/2,152:LLeft~3,155.5:A"` (the map at about 160 s). From that save, `DM_KEYS="20:L+R,26:A,32:A,35:A,40:LRight~1.5,42:LDown~1.5,45:LRight~3,49:LUp~1,51:LRight~3,54.5:LLeft~0.5,55.2:LUp~0.25,55.6:LRight~2,58:LUp~0.2,58.4:LRight~0.25,58.8:LUp~0.2,59.2:LRight~0.25,59.6:LUp~0.2,60:LRight~0.25,60.4:LUp~0.2,61:A,63:A"` crosses the bridge (its entry is narrow between the posts) and enters Forest Follies (play from about 68 s; Y shoots).
 
+**FINAL FANTASY TACTICS - The Ivalice Chronicles (`010038B015560000`)**
+- **Status:** brought up on the Mac: initial settings, the opening movie, the prologue and the Orbonne Monastery battle up to the player's first turn, at 60 fps with no red line (about 1.4 GB resident). Not tested on an iPhone yet.
+- **Engine:** Square Enix's engine on SDK 19.3.9 (its `sdk` is byte-identical to Hades II's), NVN, update 1.4.0 (v393216). The OpenGL driver bundled as `subsdk0` is not loaded. CRI Mana movies and ADX audio run in the game's own code.
+- **Shaders:** 306: 257 GLSLC outputs in the technique files (`resources_nx/release/master/shader/*.tec`), which `shader_split.py` now reads like `main`'s 49, and one geometry shader Metal cannot build.
+- **Job system:** its pools wake one worker through a shared auto-clear event and relied on the workers sleeping in index order; a build cut makes a worker woken in another's place pass the wake on (`patch_nso.py`; the boot hung in 4 of 6 runs) ([03](agents/03-bringup.md)).
+- **Graphics:** UI textures are written by the CPU into uncached pools after creation (`tex_flush_upload`, `tex_dirty_upload`), and the UI is composited into the window texture by fragment-shader image stores read back as `r32ui`, between game barriers inside one pass ([04](agents/04-graphics.md)).
+- **Mac input:** a fresh save reaches the first battle turn at about frame 21,000 with `DM_KEYS="22:A*60/2,150:Plus,152:X~2.5,165:Plus,167:X~2.5,175:A*70/2"` (A through the settings and the birthday, then + and a held X skip each part of the opening).
+
 ## Tools (`dm/tools`)
 
 | Tool | What it does |
