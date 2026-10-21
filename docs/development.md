@@ -350,6 +350,26 @@ The game's own work and its frame rate stay as they are; the host avoids work of
 - **Memory:** everything is virtual address memory: malloc's StandardAllocator (40 GB of address space, cut to 2.5 GB on this build; 1.75 GB of it is FNA3D's GPU heap), the .NET GC's region range (`game_env DOTNET_GCRegionRange=60000000`: 1.5 GB instead of 3.75), and the SDK cuts for its node area and its 1 GB alignment of large regions. They take 4.13 GB of the 4.375 GB alias region in a 5 GB block ([03](agents/03-bringup.md)).
 - **Mac input:** a fresh save reaches the first level at about frame 9,000 with `DM_KEYS="f1500:A,f1900:A,f2300:A,f2700:A,f3000:A,f3300:A,f3600:A,f4000:A,f4400:A,f4800:A,f5400:A*30/150"` (any button, accept the licence, New game, the character select, then A through the intro and the first dialogue); `LRight` walks, Y strikes and X uses the skill.
 
+**Captain Toad: Treasure Tracker (`01009BF0072D4000`)**
+- **Status:** brought up on the Mac with no host change:
+  - the opening course, the cutscene that follows it and the title menu;
+  - the first save, the Episode 1 book and Plucky Pass Beginnings;
+  - the Special Episode's book (add-on content 1).
+
+  It runs at 60 fps with no red line. Three minutes in a course: about 950 MB resident and 690 MB of Metal allocations, flat. Not tested on an iPhone yet.
+- **Engine:** Nintendo EPD Tokyo's engine (the `al` library over sead / agl, as Super Mario 3D World and Super Mario Odyssey) on SDK 8.2.0, update 1.4.2 (v393216). Its `sdk` is the build Link's Awakening 1.1.0 runs. `main` exports its symbols (48,804 defined), so `sdis.py --find` names most functions.
+- **Shaders:** 7,258, all with Mario's binding layout. The fin fur geometry shader does not build, as in 3D World. `main` imports `glslcCompile` but no module defines it, so nothing is compiled at run time ([04](agents/04-graphics.md)).
+- **Graphics:** agl's post-effect program samples its own attachment, as in 3D World, and here the 16x16 magenta blocks showed on the Mac too: the profile's `feedback_snap`.
+- **Input:** the profile plays it handheld (`op_mode`): docked, the game's pointer (touch blocks, stunning enemies) is the Joy-Con gyro; handheld, it is the touch screen. The virtual gamepad starts in the 3D layout (right stick: camera).
+- **Add-on content:** index 1 is the Special Episode; index 2 holds a 1-byte marker file.
+- **Memory:** no system resource; the game sets a 3.00 GB heap (pool − 64 MB) in the 4 GB layout.
+- **Mac input:** a fresh save starts in the opening course with control of Toad. `DM_KEYS="f900:LUp+LRight~2.0,f1030:LUp+LLeft~2.2,f1170:LDown+LLeft~2.8,f1345:LDown+LRight~0.4,f1375:LUp+LRight~2.0,f1500:LDown+LRight~1.5,f1595:LUp+LRight~1.4,f1685:LUp+LLeft~0.9"` walks him to the star:
+  - through the arch, up the back ramp, around the rock on the grass top and over the roof;
+  - the course clears at about frame 2,100 and the title menu comes at about 5,200, with the first save;
+  - A dismisses the title's notices.
+
+  From that save, `DM_KEYS="f600:A,f1000:LRight~0.3,f1300:A"` starts Plucky Pass Beginnings (play from about frame 1,900). How the route was found (position probe, the stage map's guide rail) is in [05](agents/05-debugging.md).
+
 ## Tools (`dm/tools`)
 
 | Tool | What it does |
