@@ -47,6 +47,9 @@ tex_flush_upload	on
 # and set all three to it (with only a 1/60 s wait the clock and the battles ran at twice real time); the host paces the presents at 60 fps, 30 when 60 does not hold.
 # 0 = the Switch original
 fps_target	60
+# The updates step by the cap whatever the hold, so holding late frames only paced the screen, and an iPhone lowers the GPU clock to the hold: in battle the GPU went from 10 to
+# 41 ms a frame at the same draws and the hold stayed at 3 vsyncs (20 fps at thermal state 0). Frames are shown as soon as they are ready (the 60fps IPA ran battles at 45–57)
+fps_hold	off
 # KTGL binds whole mesh pools (up to ~590,000 vertices) and its soldiers' Half2 / Short2 attributes feed integer shader inputs, which the replay converts on the CPU:
 # over the bound ranges that was millions of vertices a frame in battle (26 fps at any target on the Mac); only over the vertices each draw reads
 vconv_range	on
