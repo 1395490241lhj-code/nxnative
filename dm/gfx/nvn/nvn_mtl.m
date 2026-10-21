@@ -751,6 +751,7 @@ static int bw_hit(uint64_t lo, uint64_t hi) { for (int i = 0; i < g_bw_n; i++) i
 static int br_hit(uint64_t lo, uint64_t hi) { for (int i = 0; i < g_br_n; i++) if (lo < g_br_hi[i] && g_br_lo[i] < hi) return 1; return 0; }
 // buffer → buffer / fill: reads [rlo, rhi) (0, 0 when nothing is read), writes [wlo, whi)
 static uint64_t g_wr_epoch;   // Bumped by every buffer write outside a render pass (copy / update / fill, texture → buffer, dispatch): indirect-draw conversions made before it are stale (ixc_run)
+static uint64_t g_mdx_epoch;  // Bumped by GPU writes that can change an indirect-count multi-draw's records or count (copy, fill, texture → buffer, dispatch; see mdx_run)
 static id<MTL4ComputeCommandEncoder> blit_buf(uint64_t rlo, uint64_t rhi, uint64_t wlo, uint64_t whi) {
     g_wr_epoch++;
     id<MTL4ComputeCommandEncoder> e = blit_raw();
@@ -768,7 +769,7 @@ static id<MTL4ComputeCommandEncoder> blit(void) {
 }
 
 void mtl_sub_copy(uint64_t src, uint64_t dst, uint64_t n) {
-    pend_add(dst, n, 2);
+    pend_add(dst, n, 2); g_mdx_epoch++;
     void *sb, *db; uint64_t so, dof;
     if (!mtl_addr(src, n, &sb, &so) || !mtl_addr(dst, n, &db, &dof))
         MDIE("buffer copy address is in no memory pool src=%#llx dst=%#llx n=%#llx", (unsigned long long)src, (unsigned long long)dst, (unsigned long long)n);
@@ -940,7 +941,7 @@ void mtl_sub_update(const void *data, uint64_t dst, uint64_t n) {
 // In-order buffer fill within the submission: all four bytes equal → fillBuffer; otherwise copied in chunks from a 64 KiB pattern buffer
 void mtl_sub_fill(uint64_t dst, uint64_t n, uint32_t value) {
     if (!n) return;
-    pend_add(dst, n, 3);
+    pend_add(dst, n, 3); g_mdx_epoch++;
     void *db; uint64_t dof;
     if (!mtl_addr(dst, n, &db, &dof)) MDIE("buffer fill address is in no memory pool dst=%#llx n=%#llx", (unsigned long long)dst, (unsigned long long)n);
     uint8_t b0 = (uint8_t)value;
@@ -1516,6 +1517,30 @@ uint64_t mtl_upload_gpu_ns_take(void) { return atomic_exchange(&g_upload_gpu_ns,
 void mtl_create_stats(uint64_t *lib, uint64_t *pso) { *lib = g_bp_lib_n; *pso = g_bp_pso_n; }
 void mtl_create_ns(uint64_t *lib_ns, uint64_t *pso_ns) { *lib_ns = g_bp_lib_ns; *pso_ns = g_bp_pso_ns; }   // Cumulative time spent synchronously creating shader libraries / pipelines on the spot (the long-frame log takes the per-frame difference)
 uint64_t mtl_upload_bytes(void) { return g_bp_up_bytes; }   // Cumulative texture upload bytes
+// Diagnostic DM_NVN_ZBLOCK=1: all-zero 16-byte blocks of each ASTC texture uploaded on the CPU, per level (an all-zero ASTC block decodes as the error colour, magenta). tex_mtl_ logs
+// a texture whose bound levels hold any (zb_report), with each level's zero blocks, its total and whether all its pages are mapped (sparse pools)
+static int zblock_on(void) { static int v = -1; if (v < 0) { v = getenv("DM_NVN_ZBLOCK") != NULL; if (v) MLOG("DM_NVN_ZBLOCK: counting all-zero blocks of ASTC textures at upload (diagnostic)"); } return v; }
+static uint64_t g_zb_ser; static uint32_t g_zb[16], g_zb_tot[16]; static int g_zb_n;
+static void zb_report(const tex_t *t, unsigned base, const char *why) {
+    if (!zblock_on() || g_zb_ser != t->serial) return;
+    int bad = 0; for (int l = (int)base; l < g_zb_n; l++) bad |= g_zb[l] != 0;
+    g_zb_ser = 0; if (!bad) return;
+    static int nl; if (nl++ >= 400) return;
+    char b[512]; size_t o = 0; int sp = t->pool && nvn_sparse_pool(t->pool);
+    for (int l = 0; l < g_zb_n && o < sizeof b - 48; l++) { uint64_t lo = nvn_tex_level_offset(&t->d, (unsigned)l), hi = l + 1 < (int)t->d.levels ? nvn_tex_level_offset(&t->d, (unsigned)l + 1) : t->L.size;
+        o += (size_t)snprintf(b + o, sizeof b - o, " L%d %u/%u%s", l, g_zb[l], g_zb_tot[l], sp ? (nvn_sparse_mapped(t->pool, (uint64_t)(uintptr_t)t->mem + lo, hi - lo) ? "" : " unmapped") : ""); }
+    MLOG("[zb] %s ser=%llu format %#x %ux%u levels %u flags %#x mem=%p size %#llx sparse %d bound from level %u frame %llu:%s", why, (unsigned long long)t->serial, t->d.format, t->d.width, t->d.height, t->d.levels,
+         t->d.flags, t->mem, (unsigned long long)t->L.size, sp, base, (unsigned long long)atomic_load(&g_cur_frame), b);
+    const char *dir = getenv("DM_NVN_ZBLOCK"); static int nd; static uint64_t seen[16];   // DM_NVN_ZBLOCK=<folder>: also the raw storage of the first such texture of each format and size (up to 16), zb_<serial>.bin (unmapped pages as 0)
+    uint64_t kind = (uint64_t)t->d.format << 48 | (uint64_t)t->d.width << 24 | t->d.height; int dup = 0; for (int i = 0; i < nd; i++) dup |= seen[i] == kind;
+    if (dir && dir[0] == '/' && nd < 16 && !dup) { seen[nd] = kind; uint64_t n = sp ? MAX(t->L.size, 2u << 20) : t->L.size; uint8_t *m = malloc(n); char fp[1024]; FILE *f;   // a sparse texture: 2 MB, and zbm_<serial>.bin a byte per 4 KB page (1 mapped)
+        if (m) { if (sp) nvn_sparse_copy(t->pool, m, (uint64_t)(uintptr_t)t->mem, n); else memcpy(m, t->mem, n);
+            snprintf(fp, sizeof fp, "%s/zb_%llu.bin", dir, (unsigned long long)t->serial); if ((f = fopen(fp, "wb"))) { fwrite(m, 1, n, f); fclose(f); nd++; }
+            if (sp) { for (uint64_t o = 0; o < n; o += 0x1000) m[o >> 12] = (uint8_t)nvn_sparse_mapped(t->pool, (uint64_t)(uintptr_t)t->mem + o, 0x1000);
+                snprintf(fp, sizeof fp, "%s/zbm_%llu.bin", dir, (unsigned long long)t->serial); if ((f = fopen(fp, "wb"))) { fwrite(m, 1, n >> 12, f); fclose(f); } }
+            free(m); }
+        MLOG("[zb] ser=%llu: block height log2 %d (packaged %d), stride %u, depth %u, target %d, samples %d", (unsigned long long)t->serial, (int)t->L.tileH, t->d.pkg_block_h, t->d.stride, t->d.depth, t->d.target, t->d.samples); }
+}
 static id<MTLTexture> pkg_upload_(const tex_t *t, uint64_t *stamp, id<MTLTexture> reuse) {
     MTLTextureDescriptor *d = tex_desc(t, 1);
     if (!d) return nil;
@@ -1576,11 +1601,15 @@ static id<MTLTexture> pkg_upload_(const tex_t *t, uint64_t *stamp, id<MTLTexture
     id<MTLBuffer> stg = [g_dev newBufferWithLength:total ? total : 16 options:MTLResourceStorageModeShared];
     res_add(stg); [g_up_keep addObject:stg];
     size_t off = 0;
+    int zb = zblock_on() && t->d.format >= 0x79 && t->d.format <= 0x94; if (zb) { g_zb_ser = t->serial; g_zb_n = (int)MIN(d.mipmapLevelCount, 16u); memset(g_zb, 0, sizeof g_zb); memset(g_zb_tot, 0, sizeof g_zb_tot); }
     for (unsigned l = 0; l < d.mipmapLevelCount; l++) {
         uint32_t w = MAX(t->d.width >> l, 1u), h = MAX(t->d.height >> l, 1u), z = t->d.target == 2 ? MAX(t->d.depth >> l, 1u) : 1;
         size_t pitch = (size_t)((w + bw - 1) / bw) * bpb, rows = (h + bh - 1) / bh;
         for (unsigned y = 0; y < layers; y++) {
             if (nvn_deswizzle(&t->d, l, y, src, (uint8_t *)stg.contents + off, pitch)) { RED_ONCE(9, "deswizzle failed format %#x target %d", t->d.format, t->d.target); break; }
+            if (zb && l < 16) { const uint64_t *q = (const uint64_t *)((const uint8_t *)stg.contents + off); size_t nb = pitch * rows * z / 16;
+                for (size_t i = 0; i < nb; i++) g_zb[l] += !(q[2 * i] | q[2 * i + 1]);
+                g_zb_tot[l] += (uint32_t)nb; }
             up_blit_add(stg, off, pitch, pitch * rows, MTLSizeMake(w, h, z), mt, y, l);
             off += pitch * rows * z;
         }
@@ -1774,6 +1803,7 @@ static id<MTLTexture> tex_mtl_(const tex_t *ct) {
             if (nt) { id<MTLTexture> old = pk->tex; pk->tex = nt;
                 if (pk->spare && pk->spare != nt) defer_obj_release(pk->spare);   // still in use, or of another shape: retired as before
                 if (pk->sparse) sparse_view(pk, t);
+                zb_report(t, pk->sparse ? (unsigned)pk->vbase : 0, "re-upload");
                 pk->spare = old; pk->spare_fence = g_fence + 1; g_ser_gen++; pk->stamp = st; pk->vgen = pk->vseen = vg; pk->span = nvn_dirty_span(t->mem, t->L.size); pk->seen = nvn_dirty_now(); g_pkg_reuploads++; if (dirtycheck() && !pk->sparse) pk->hash = full_hash(t->mem, t->L.size); }
             return pk->view ? pk->view : pk->tex;
         }
@@ -1784,6 +1814,7 @@ static id<MTLTexture> tex_mtl_(const tex_t *ct) {
         pk->span = nvn_dirty_span(t->mem, t->L.size);
         pk->seen = nvn_dirty_now(); g_pkg_uploads++; if (dirtycheck() && !pk->sparse) pk->hash = full_hash(t->mem, t->L.size);
         if (pk->sparse) sparse_view(pk, t);
+        zb_report(t, pk->sparse ? (unsigned)pk->vbase : 0, "upload");
         tex_put(t->serial, pk);
         return pk->view ? pk->view : pk->tex;
     }
@@ -4188,6 +4219,7 @@ static id<MTL4RenderCommandEncoder> rp_begin(void);
 // not one byte of the depth content is touched, and on TBDR the load and store of the whole depth texture are saved (measured on a real device: a single-draw fullscreen pass takes half the GPU, with an extra D32S8 load and store attached).
 // The scan follows real replay order across sub-list returns and across the remaining handles of this submission; end of submission = the pass must end. Undecidable cases such as a mid-pass clear or too-deep nesting always count as 'used'.
 static const uint8_t *g_exec_next;   // The op following the current draw in the replay
+static const uint8_t *g_exec_cur;    // The current draw's own op (set with g_exec_next)
 static const uint8_t *g_ret[16]; static int g_ret_n;   // Call return stack of the replay (at OP_CALL the caller's next op is pushed)
 static const uint64_t *g_rest; static int g_nrest;      // Handles in this submission still to be replayed after the current handle
 void mtl_exec_rest(const uint64_t *h, int n) { g_rest = h; g_nrest = n; }
@@ -5849,9 +5881,9 @@ static int ubd_conflict(NvProg *pr, const p_draw *dw, const p_draw_idx *di) {
     return 0;
 }
 // Draws of an indirect-count multi-draw (hle_nvn.c nvnCommandBufferMultiDrawElementsIndirectCount): draw i is made only while i < the u32 count the game's GPU culling wrote earlier in the
-// submission. Metal cannot skip draws by a count in GPU memory, so before the first such draw after GPU writes (a dispatch, copy, update or fill since the last wait, g_wr_epoch; or a new
-// submission) the replay ends the render pass, commits what it has encoded and waits for it, then reads the count on the CPU; later draws of the group use the same value. One wait per
-// GPU-driven pass instead of a compute pass that masks the records (not done yet). The records themselves are still read by the GPU (ordinary indirect draws)
+// submission. Metal cannot skip draws by a count in GPU memory. Most such draws are masked on the GPU (mdx_run below); the rest (quads, fans and 8-bit indices, whose records ixc_run
+// converts, and records or counts in no Metal buffer) wait here: before the first such draw after GPU writes (a dispatch, copy, update or fill since the last wait, g_wr_epoch; or a new
+// submission) the replay ends the render pass, commits what it has encoded and waits for it, then reads the count on the CPU; later draws of the group use the same value
 static id<MTLSharedEvent> g_mdi_ev; static uint64_t g_mdi_v, g_mdi_waits, g_mdi_epoch = ~0ull, g_mdi_sub, g_mdi_addr; static uint32_t g_mdi_count;
 static void mdi_wait(void) {
     rp_end();
@@ -5876,6 +5908,93 @@ static int mdi_live(uint64_t cnt, int i) {
         g_mdi_addr = cnt; g_mdi_count = v;
     }
     return (uint32_t)i < g_mdi_count;
+}
+// ---------- Indirect-count multi-draws masked on the GPU ----------
+// The wait above held the submitting thread for the GPU at every GPU-driven pass: in Monster Hunter Rise's Kamura Village, 14 of the 20 ms a submission took on an iPhone were that wait
+// (6 ms of work), and the game ran at 36–54 fps. Instead a compute pass copies each such draw's record into the frame arena, or zeros for a draw past the count, and the draw reads the copy:
+// past the count it draws nothing, and the CPU never waits. As in ixc_run, a compute pass cannot run inside a render pass: at the first such draw with no copy yet, mdx_run copies it and every
+// such draw after it in replay order up to the next write that could change a record or count (a dispatch, copy, fill or texture → buffer copy, which bump g_mdx_epoch; a uniform update only
+// when it covers one: g_mdx_stop), so only a draw met inside an open render pass splits it. Copies are found by record and count address in an open-addressing table, valid for one g_mdx_tag
+// (Kamura Village draws the same records with two counts between the same writes: keyed by the record alone, the second multi-draw found no copy and waited for the GPU each frame)
+#define MDX_SLOTS 16384   // a power of two; a scan fills at most a quarter
+typedef struct { uint64_t ind, cnt, out, tag; } mdx_ent;   // out: GPU address of the copy, 0 when the record or count is in no Metal buffer (those draws wait, mdi_live)
+static mdx_ent g_mdx[MDX_SLOTS]; static int g_mdx_n; static uint64_t g_mdx_tag = 1, g_mdx_ep = ~0ull, g_mdx_sub, g_mdx_runs, g_mdx_splits, g_mdx_draws, g_mdx_fast; static const uint8_t *g_mdx_stop;
+static const char k_mdx_msl[] =
+"#include <metal_stdlib>\nusing namespace metal;\n"
+"struct mjob { device const uint *rec; device const uint *cnt; device uint *out; uint i, words; };\n"   // draw i's record (words long), its multi-draw's count, the copy (null: padding)
+"kernel void mdx_mask(device const mjob *j [[buffer(0)]], uint t [[thread_position_in_grid]]) {\n"
+"  mjob m = j[t]; if (!m.out) return; bool live = m.i < *m.cnt;\n"
+"  for (uint k = 0; k < m.words; k++) m.out[k] = live ? m.rec[k] : 0u; }\n";
+static int mdx_wanted(const p_draw *dw, const p_draw_idx *di) { return dw ? dw->mdi_cnt && !ixc_wanted(dw, NULL) : di->mdi_cnt && !ixc_wanted(NULL, di); }
+static mdx_ent *mdx_slot(uint64_t ind, uint64_t cnt) {   // its entry in this tag, or the free slot for it
+    for (uint64_t h = ((ind ^ cnt * 0xD6E8FEB86659FD93ull) * 0x9E3779B97F4A7C15ull) >> 50;; h = (h + 1) & (MDX_SLOTS - 1)) { mdx_ent *e = &g_mdx[h]; if (e->tag != g_mdx_tag || (e->ind == ind && e->cnt == cnt)) return e; }
+}
+static int mdx_find(uint64_t ind, uint64_t cnt, uint64_t *out) {   // → 1 when mdx_run has taken this draw (*out: its copy, or 0)
+    if (g_mdx_ep != g_mdx_epoch || g_mdx_sub != g_sub_serial) return 0;
+    const mdx_ent *e = mdx_slot(ind, cnt); if (e->tag != g_mdx_tag) return 0;
+    *out = e->out; return 1;
+}
+static void mdx_run(const p_draw *dw, const p_draw_idx *di) {
+    static id<MTLComputePipelineState> ps; static id<MTL4ArgumentTable> at; static int failed;
+    if (failed) return;
+    if (!at) { NSError *e = nil; id<MTLLibrary> lib = [g_dev newLibraryWithSource:@(k_mdx_msl) options:nil error:&e]; id<MTLFunction> f = [lib newFunctionWithName:@"mdx_mask"];
+        ps = f ? [g_dev newComputePipelineStateWithFunction:f error:&e] : nil;
+        MTL4ArgumentTableDescriptor *ad = [MTL4ArgumentTableDescriptor new]; ad.maxBufferBindCount = 1; at = ps ? [g_dev newArgumentTableWithDescriptor:ad error:&e] : nil;
+        if (!at) { failed = 1; MLOG("[RED] indirect-count multi-draw masking: cannot create the compute pipeline %s (those draws wait for the GPU)", e.localizedDescription.UTF8String); return; } }
+    if (g_mdx_ep != g_mdx_epoch || g_mdx_sub != g_sub_serial || g_mdx_n > MDX_SLOTS / 4) { g_mdx_tag++; g_mdx_n = 0; g_mdx_ep = g_mdx_epoch; g_mdx_sub = g_sub_serial; }
+    enum { QMAX = MDX_SLOTS / 4 };
+    static struct { mdx_ent *e; uint32_t i, words; } q[QMAX]; int nq = 0;
+    uint64_t lo = ~0ull, hi = 0;   // the hull of the records and counts taken, for the uniform update check
+    #define MDX_TAKE(IND, CNT, I, W) do { mdx_ent *e_ = mdx_slot((IND), (CNT)); if (e_->tag != g_mdx_tag && nq < QMAX) { *e_ = (mdx_ent){(IND), (CNT), 0, g_mdx_tag}; g_mdx_n++; \
+        q[nq].e = e_; q[nq].i = (uint32_t)(I); q[nq++].words = (W); lo = MIN(lo, MIN((IND), (CNT))); hi = MAX(hi, MAX((IND) + 4 * (W), (CNT) + 4)); } } while (0)
+    if (dw) MDX_TAKE(dw->ind, dw->mdi_cnt, dw->mdi_i, 4); else MDX_TAKE(di->ind, di->mdi_cnt, di->mdi_i, 5);
+    if (g_exec_next && g_ret_n <= 8) {   // later draws in replay order (current list → callers → the rest of this submission)
+        fz_cursor cur = {.p = g_exec_next, .ret_n = g_ret_n}; memcpy(cur.ret, g_ret, sizeof(*g_ret) * (size_t)g_ret_n);
+        const uint8_t *p; op_hdr h; const void *a;
+        for (int guard = 0; guard < 200000 && nq < QMAX && fz_next(&cur, &p, &h, &a); guard++) {
+            if (h.op == OP_DISPATCH || h.op == OP_COPY_B2B || h.op == OP_CLEAR_BUF || h.op == OP_COPY_T2B) break;
+            if (h.op == OP_UPDATE_UB) { uint64_t d, n; memcpy(&d, a, 8); memcpy(&n, (const uint8_t *)a + 8, 8);
+                int hit = 0; for (int k = 0; d < hi && lo < d + n && k < nq && !hit; k++) { const mdx_ent *e = q[k].e; hit = (d < e->ind + 4 * q[k].words && e->ind < d + n) || (d < e->cnt + 4 && e->cnt < d + n); }
+                if (hit) { g_mdx_stop = p; break; } continue; }
+            p_draw dt; p_draw_idx it; const p_draw *d = h.op == OP_DRAW ? draw_rec(a, h.size, &dt) : NULL; const p_draw_idx *x = h.op == OP_DRAW_IDX ? draw_idx_rec(a, h.size, &it) : NULL;
+            if (d && mdx_wanted(d, NULL)) MDX_TAKE(d->ind, d->mdi_cnt, d->mdi_i, 4);
+            else if (x && mdx_wanted(NULL, x)) MDX_TAKE(x->ind, x->mdi_cnt, x->mdi_i, 5);
+        }
+    }
+    #undef MDX_TAKE
+    if (!nq) return;
+    if (g_enc) { g_mdx_splits++; PD("M %llu indirect-count multi-draw masking: render pass split here", g_stat_pass); rp_end(); }
+    if (g_blit) { enc_b_end(g_blit); g_blit = nil; }
+    typedef struct { uint64_t rec, cnt, out; uint32_t i, words; } mjob;
+    int nj = (nq + 63) & ~63;
+    id<MTLBuffer> ab; size_t ao = arena_alloc((size_t)nj * sizeof(mjob) + (size_t)nq * 32, &ab);   // the jobs (padded to whole threadgroups), then the copies 32 bytes apart
+    mjob *j = (mjob *)((uint8_t *)ab.contents + ao); uint64_t og = ab.gpuAddress + ao + (uint64_t)nj * sizeof(mjob);
+    memset(j, 0, (size_t)nj * sizeof(mjob));
+    for (int k = 0; k < nq; k++) { mdx_ent *e = q[k].e; void *mb; uint64_t mo, rg, cg;
+        if (!mtl_gpu_addr(e->ind, 4 * q[k].words, &mb, &mo, &rg) || !mtl_gpu_addr(e->cnt, 4, &mb, &mo, &cg)) continue;
+        e->out = og + 32 * (uint64_t)k; j[k] = (mjob){rg, cg, e->out, q[k].i, q[k].words}; }
+    id<MTL4ComputeCommandEncoder> ce = enc_c_begin(NULL); [ce setArgumentTable:at]; [at setAddress:ab.gpuAddress + ao atIndex:0]; [ce setComputePipelineState:ps];
+    [ce dispatchThreadgroups:MTLSizeMake((NSUInteger)nj / 64, 1, 1) threadsPerThreadgroup:MTLSizeMake(64, 1, 1)];
+    enc_c_end(ce);
+    args_dirty_all();
+    g_mdx_draws += (uint64_t)nq;
+    if (!g_mdx_runs++) MLOG("indirect-count multi-draw masking: first time, %d draws (their records are copied on the GPU, zeros past the count, before the render pass)", nq);
+    else if (g_mdx_runs % 3600 == 0) MLOG("indirect-count multi-draw masking: %llu times, %llu draws (%llu encoded alone, mdx_next), render pass split %llu times; waits for the GPU-written count %llu",
+                                          (unsigned long long)g_mdx_runs, (unsigned long long)g_mdx_draws, (unsigned long long)g_mdx_fast, (unsigned long long)g_mdx_splits, (unsigned long long)g_mdi_waits);
+}
+// The draws of one multi-draw are recorded back to back with the same state, and only the first few are live: each one replayed right after the one before it (no op between them,
+// the same open pass) is encoded alone, without the rest of draw's work, which cost a whole draw for each masked one (about 1.5 µs on an M4 Pro, 1,100 a frame in Kamura Village)
+static struct { const uint8_t *next; const void *enc; uint64_t cnt, ig, il, pass; int i; MTLPrimitiveType mp; MTLIndexType it; } g_mdxc;
+static void mdx_chain(uint64_t cnt, int i, MTLPrimitiveType mp, MTLIndexType it, uint64_t ig, uint64_t il) {
+    g_mdxc = g_defer_replaying || !g_exec_next ? (typeof(g_mdxc)){0} : (typeof(g_mdxc)){g_exec_next, (__bridge const void *)g_enc, cnt, ig, il, g_stat_pass, i, mp, it};
+}
+static int mdx_next(const p_draw *dw, const p_draw_idx *di) {
+    uint64_t cnt = dw ? dw->mdi_cnt : di->mdi_cnt, out; int i = dw ? dw->mdi_i : di->mdi_i;
+    if (!g_mdxc.next || g_mdxc.next != g_exec_cur || !g_enc || g_mdxc.enc != (__bridge const void *)g_enc || g_mdxc.pass != g_stat_pass || g_mdxc.cnt != cnt || g_mdxc.i + 1 != i
+        || g_defer_replaying || passdump() || !mdx_find(dw ? dw->ind : di->ind, cnt, &out) || !out) return 0;
+    if (dw) enc_r_draw_indirect(g_enc, g_mdxc.mp, out); else enc_r_draw_indexed_indirect(g_enc, g_mdxc.mp, g_mdxc.it, g_mdxc.ig, g_mdxc.il, out);
+    g_stat_draw++; g_mdx_fast++; g_mdxc.next = g_exec_next; g_mdxc.i = i;
+    return 1;
 }
 // ---------- Transform feedback ----------
 // A draw under rasterizer discard rasterizes nothing; with feedback active it captures its vertex shader's outputs into the bound feedback buffers. Pokémon Legends: Z-A skins its characters
@@ -6016,7 +6135,10 @@ static int lc_keeps(uint32_t op) {
 
 static void draw(const p_draw *dw, const p_draw_idx *di) {
     g_draw_binst = (uint32_t)(dw ? dw->base_instance : di ? di->base_instance : 0);   // c0 + 0x644 of the stages that read the driver segment (encode_args)
-    if ((di && di->mdi_cnt && !mdi_live(di->mdi_cnt, di->mdi_i)) || (dw && dw->mdi_cnt && !mdi_live(dw->mdi_cnt, dw->mdi_i))) return;   // past the multi-draw's count
+    int mdx_on = (dw && dw->mdi_cnt) || (di && di->mdi_cnt) ? mdx_wanted(dw, di) : 0;   // an indirect-count multi-draw's record masked on the GPU (mdx_run), else read after a wait
+    if (!mdx_on && ((di && di->mdi_cnt && !mdi_live(di->mdi_cnt, di->mdi_i)) || (dw && dw->mdi_cnt && !mdi_live(dw->mdi_cnt, dw->mdi_i)))) return;   // past the multi-draw's count
+    if (mdx_on && mdx_next(dw, di)) return;   // the next draw of a masked multi-draw: only the draw is encoded
+    g_mdxc.next = NULL;
     if (!S.prog) { RED_ONCE(18, "no program bound before the draw"); PD("Z %llu draw skipped: no program bound", g_stat_pass + !g_enc); return; }
     __unsafe_unretained NvProg *pr = prog_get(S.prog);
     if (S.rast_discard) { tf_draw(pr, dw, di); return; }   // the vertex stage only: transform feedback capture, or nothing (tf_draw)
@@ -6026,6 +6148,10 @@ static void draw(const p_draw *dw, const p_draw_idx *di) {
         PD("N %llu zero-source draw skipped", g_stat_pass + 1); return; }
     if (g_nlc && !g_enc) lc_take(pr);   // waiting clears: this pass's load actions, or landed before it (see lc_take)
     if (ixc_wanted(dw, di) && !ixc_find(dw, di)) ixc_run(dw, di);   // indirect quads / fans / 8-bit indices: converted on the GPU before the render pass, at their own place in the replay (see ixc_run)
+    uint64_t mdx = 0;   // the masked copy of the record (mdx_run); a draw it could not copy waits for the count instead
+    if (mdx_on) { uint64_t ind = dw ? dw->ind : di->ind, cnt = dw ? dw->mdi_cnt : di->mdi_cnt; int i = dw ? dw->mdi_i : di->mdi_i;
+        if (!mdx_find(ind, cnt, &mdx)) { mdx_run(dw, di); if (!mdx_find(ind, cnt, &mdx)) mdx = 0; }
+        if (!mdx && !mdi_live(cnt, i)) return; }
     if (di && wide_wanted(di) && !wide_find(di)) wide_run(di);   // 8-bit indices written earlier in this submission: widened on the GPU before the render pass (see wide_run)
     if (!g_defer_replaying) {
         if (g_defer.active && g_defer.in_p && !g_defer.at_q) { if (defer_take(dw, di)) return; }
@@ -6214,10 +6340,11 @@ static void draw(const p_draw *dw, const p_draw_idx *di) {
         const ixc_ent *e = ixc_wanted(dw, di) ? ixc_find(dw, di) : NULL; void *mb, *ab; uint64_t mo, ao, ig;
         uint64_t ind = dw ? dw->ind : di->ind;
         if (ixc_wanted(dw, di)) { if (e && e->args) enc_r_draw_indexed_indirect(en, mp, MTLIndexTypeUInt32, e->ixb, e->ixlen, e->args); else RED_ONCE(88, "indirect draw skipped: the arguments for primitive %d were not converted (argument address %#llx is in no memory pool, or the conversion pipeline was not created)", prim, (unsigned long long)ind); }
-        else if (!mtl_addr(ind, dw ? 16 : 20, &ab, &ao)) RED_ONCE(88, "indirect draw skipped: argument address %#llx is in no memory pool", (unsigned long long)ind);
-        else if (dw) enc_r_draw_indirect(en, mp, ((__bridge id<MTLBuffer>)ab).gpuAddress + ao);
+        else if (!mdx && !mtl_addr(ind, dw ? 16 : 20, &ab, &ao)) RED_ONCE(88, "indirect draw skipped: argument address %#llx is in no memory pool", (unsigned long long)ind);
+        else if (dw) { enc_r_draw_indirect(en, mp, mdx ? mdx : ((__bridge id<MTLBuffer>)ab).gpuAddress + ao); if (mdx) mdx_chain(dw->mdi_cnt, dw->mdi_i, mp, MTLIndexTypeUInt32, 0, 0); }
         else if (!mtl_gpu_addr(di->ibuf, 1, &mb, &mo, &ig)) RED_ONCE(22, "index buffer is in no memory pool");
-        else enc_r_draw_indexed_indirect(en, mp, di->itype == 1 ? MTLIndexTypeUInt16 : MTLIndexTypeUInt32, ig, ((__bridge id<MTLBuffer>)mb).length - mo, ((__bridge id<MTLBuffer>)ab).gpuAddress + ao);
+        else { MTLIndexType ty = di->itype == 1 ? MTLIndexTypeUInt16 : MTLIndexTypeUInt32; uint64_t il = ((__bridge id<MTLBuffer>)mb).length - mo;
+            enc_r_draw_indexed_indirect(en, mp, ty, ig, il, mdx ? mdx : ((__bridge id<MTLBuffer>)ab).gpuAddress + ao); if (mdx) mdx_chain(di->mdi_cnt, di->mdi_i, mp, ty, ig, il); }
     } else if (dw && prim == 7) {   // Quads: shared indices 0,1,2,0,2,3
         quad_ib_make();
         if (dw->count >= 4) enc_r_draw_indexed(en, mp, (dw->count / 4) * 6, MTLIndexTypeUInt32, g_quad_gpu, g_quad_ib.length, dw->instances > 0 ? dw->instances : 1, dw->first, dw->base_instance);
@@ -6321,7 +6448,7 @@ static id<MTL4ComputeCommandEncoder> dispatch_enc(void) {
 }
 static void dispatch(const p_dispatch *dp) {
     zskip_clear();
-    g_wr_epoch++;
+    g_wr_epoch++; g_mdx_epoch++;
     if (!S.cprog) { RED_ONCE(27, "no program bound before the dispatch"); return; }
     // DispatchComputeIndirect: the group counts {x, y, z} at ind (MTLDispatchThreadgroupsIndirectArguments) are usually written by the GPU earlier in the frame; Metal reads them when the dispatch runs
     void *ib = NULL; uint64_t io = 0, ig = 0;
@@ -6375,7 +6502,7 @@ static void dispatch(const p_dispatch *dp) {
 }
 // GPU: texture -> buffer (row stride taken from SetCopyRowStride, layer stride from SetCopyImageStride, 0 = tightly packed)
 static void copy_t2b(const p_copy_b2t *c) {
-    g_wr_epoch++;
+    g_wr_epoch++; g_mdx_epoch++;
     if (c->tex) xv_check(c->tex->serial, c->has_view && c->view.set_levels ? c->view.base_level : 0, c->has_view && c->view.set_layers ? c->view.min_layer : 0, "texture-to-buffer copy");
     id<MTLTexture> t = tex_mtl(c->tex);
     if (!t) return;
@@ -6900,6 +7027,7 @@ void mtl_exec(const uint8_t *p) {
             case OP_COPY_B2B: { uint64_t s_, d, n; memcpy(&s_, a, 8); memcpy(&d, (const uint8_t *)a + 8, 8); memcpy(&n, (const uint8_t *)a + 16, 8);
                 PD("Y copy_b2b cmd=%p src=%#llx dst=%#llx bytes=%llu", p, (unsigned long long)s_, (unsigned long long)d, (unsigned long long)n); mtl_sub_copy(s_, d, n); break; }
             case OP_UPDATE_UB: { uint64_t d, n; memcpy(&d, a, 8); memcpy(&n, (const uint8_t *)a + 8, 8);
+                if (p == g_mdx_stop) { g_mdx_epoch++; g_mdx_stop = NULL; }   // it writes a record or count that masked copies were made of (mdx_run)
                 PD("Y update_ub cmd=%p src=%#llx dst=%#llx bytes=%llu f=%g,%g,%g,%g", p, (unsigned long long)((const uint8_t *)a + 16), (unsigned long long)d, (unsigned long long)n,
                    n >= 4 ? ((const float *)((const uint8_t *)a + 16))[0] : 0.f, n >= 8 ? ((const float *)((const uint8_t *)a + 16))[1] : 0.f, n >= 12 ? ((const float *)((const uint8_t *)a + 16))[2] : 0.f, n >= 16 ? ((const float *)((const uint8_t *)a + 16))[3] : 0.f); mtl_sub_update((const uint8_t *)a + 16, d, n); break; }
             case OP_SET_RT: {
@@ -6952,8 +7080,8 @@ void mtl_exec(const uint8_t *p) {
                 PD("c %llu depth-stencil clear recorded ser=%llu depth=%g depth_mask=%d stencil=%d stencil_mask=%#x", g_stat_pass, R.rt.depth ? (unsigned long long)R.rt.depth->serial : 0ull, c->depth, c->depth_mask, c->stencil, c->stencil_mask);
                 break;
             }
-            case OP_DRAW: { if (g_rc_skip) break; p_draw t; g_exec_next = p + h.size; draw(draw_rec(a, h.size, &t), NULL); g_exec_next = NULL; break; }   // Lookahead start point
-            case OP_DRAW_IDX: { if (g_rc_skip) break; p_draw_idx t; g_exec_next = p + h.size; draw(NULL, draw_idx_rec(a, h.size, &t)); g_exec_next = NULL; break; }
+            case OP_DRAW: { if (g_rc_skip) break; p_draw t; g_exec_cur = p; g_exec_next = p + h.size; draw(draw_rec(a, h.size, &t), NULL); g_exec_next = NULL; break; }   // Lookahead start point
+            case OP_DRAW_IDX: { if (g_rc_skip) break; p_draw_idx t; g_exec_cur = p; g_exec_next = p + h.size; draw(NULL, draw_idx_rec(a, h.size, &t)); g_exec_next = NULL; break; }
             // Do not mark dirty if the state did not change (the game often re-sends the same program / state block / vertex format before each draw; the dirty flag only decides whether to re-fetch the pipeline / depth-stencil object, and equal values mean the same object)
             case OP_SCISSOR: case OP_BIND_PROGRAM: case OP_BIND_STATE: case OP_BIND_VATTR: case OP_BIND_VSTREAM: case OP_BIND_VBUF:
             case OP_BIND_UBO: case OP_BIND_SSBO: case OP_BIND_TEX: case OP_BIND_SAMP: case OP_BIND_IMG: case OP_STENCIL:

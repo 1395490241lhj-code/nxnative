@@ -2011,7 +2011,7 @@ NVN(nvnCommandBufferDrawArraysInstanced, void, NVNcommandBuffer *c, NVNdrawPrimi
 // Indirect, as DrawArraysIndirect: the record at ind is read by the GPU (nvn_mtl.m draw)
 // Indirect-count multi-draws (Monster Hunter Rise's GPU-driven scene: compute culling writes the draw records and a u32 count, then up to max draws are made from them; 1–49 per call,
 // stride 20, the records and counts in its sparse virtual pool). Metal has no draw count read by the GPU, so each multi-draw becomes max ordinary indirect draws that carry the count's address
-// and their index; the replay reads the count once the GPU has written it and skips draws past it (nvn_mtl.m mdi_live). Both used to be empty, and the whole scene stayed undrawn
+// and their index; the replay masks their records on the GPU, zeros past the count (nvn_mtl.m mdx_run). Both used to be empty, and the whole scene stayed undrawn
 enum { MDI_MAX = 1024 };
 NVN(nvnCommandBufferMultiDrawElementsIndirectCount, void, NVNcommandBuffer *c, NVNdrawPrimitive pr, NVNindexType it, NVNbufferAddress ib, NVNbufferAddress ind, NVNbufferAddress cnt, int max, ptrdiff_t stride) {
     if (max > MDI_MAX) { ONCE_LOG("[RED] indirect-count multi-draw of up to %d draws: only the first %d are made", max, MDI_MAX); max = MDI_MAX; }
@@ -2155,10 +2155,11 @@ static int write_region_bl(const tex_t *t, unsigned level, unsigned layer, const
     uint32_t x0 = (uint32_t)(r->xoffset / bw) * (uint32_t)bpb, y0 = (uint32_t)(r->yoffset / bh);
     size_t wb = (size_t)((r->width + bw - 1) / bw) * (size_t)bpb, hb = (size_t)((r->height + bh - 1) / bh);
     if (x0 + wb > row_bytes || y0 + hb > rows) return -1;
+    uint32_t lb = nvn_tex_level_gobs(&t->d, level) * 64; if (lb < row_bytes) lb = row_bytes;   // the row as laid out (padded in a sparse texture's tiled levels)
     for (size_t y = 0; y < hb; y++)
         for (size_t x = 0; x < wb;) {   // 16-byte runs are contiguous within a GOB
             uint32_t bx = x0 + (uint32_t)x; size_t n = 16 - bx % 16; if (n > wb - x) n = wb - x;
-            memcpy(t->mem + base + nvn_bl_offset(bx, y0 + (uint32_t)y, 0, row_bytes, rows, th, td), src + y * row + x, n); x += n;
+            memcpy(t->mem + base + nvn_bl_offset(bx, y0 + (uint32_t)y, 0, lb, rows, th, td), src + y * row + x, n); x += n;
         }
     return 0;
 }
