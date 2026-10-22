@@ -6,6 +6,7 @@
 #   mrs tpidrro_el0     → read thread slot KTLR (Horizon ThreadLocalRegion pointer)
 #   svc #n, mrs cntpct_el0 → host gate (gate address taken from thread slot KGATE; once in C, gates.tsv is looked up by return point)
 #   sub sp, sp, xN      → xN rounded up to 16 first (Apple's kernel faults on a misaligned sp, Horizon does not; site_sp_align)
+#   spin wait loops     → a copy whose back-edges pass a spin gate (the host yields there; a busy poll costs nothing on the Switch, see "Spin waits")
 #   Registered cuts (CUTS, restricted by NSO build ID): before rewriting, the original bytes are asserted one by one and any mismatch aborts; results are listed in <name>.cuts.tsv
 #   Registered observation gates (OBS, restricted by build ID): one instruction at the entry is replaced with "enter the host observation callback → execute the original instruction → jump back", so diagnostics modify zero code at runtime; listed in <name>.obs.tsv
 # The key page only stores "actual key number × 8" at the end of the data segment, and patch code fetches thread slots indirectly through the key page: the loader may use any key number.
@@ -14,6 +15,7 @@ import struct, re, sys, os
 from itertools import combinations
 import lz4.block
 from capstone import *
+from capstone.arm64 import ARM64_OP_IMM, ARM64_OP_MEM, ARM64_OP_REG
 
 src, outdir, NAME = sys.argv[1], sys.argv[2], sys.argv[3]
 d = open(src, 'rb').read()
@@ -676,9 +678,34 @@ starts = sorted(x for x in starts if x < TEXT_END)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import nso_code
 DATA_BLOCKS = nso_code.data_blocks(IMG, TEXT_END, md)
+CODE_RANGES = list(zip([0] + [e for _, e in DATA_BLOCKS], [s for s, _ in DATA_BLOCKS] + [TEXT_END]))
+md_lite = Cs(CS_ARCH_ARM64, CS_MODE_ARM)   # no details: the x18 scan reads only the operand text
+R18 = re.compile(r'\b[xw]18\b')
+def x18_words(lo, hi):
+    """offsets in [lo, hi) of the instructions whose operands name x18 / w18 (as has18). Decoded 16 KB at a time without details, going on after a word capstone cannot decode:
+    a third of the time of decoding one word at a time with details (Paper Mario: The Thousand-Year Door main, 437 sites in 300,000 words either way)"""
+    out, a = set(), lo
+    while a < hi:
+        end = min(hi, a + 0x4000); last = a - 4
+        for addr, size, mn, op in md_lite.disasm_lite(bytes(IMG[a:end]), a):
+            last = addr
+            if R18.search(op): out.add(addr)
+        a = last + 4 if last + 4 >= end else last + 8   # the chunk is done, or the word after the last decoded one is no instruction
+    return out
+x18 = set().union(*(x18_words(s, e) for s, e in CODE_RANGES))
 kinds = {}
-for o in (o for s, e in zip([0] + [e for _, e in DATA_BLOCKS], [s for s, _ in DATA_BLOCKS] + [TEXT_END]) for o in range(s, e, 4)):
+# Spin wait candidates (see "Spin waits" below): backward direct branches (b, b.cond, cbz / cbnz, tbz / tbnz) at most SPIN_WIN bytes back, by target
+SPIN_WIN, SPIN_TOPS = 512, {0x16, 0x17, 0x54, 0x34, 0x35, 0xB4, 0xB5, 0x36, 0x37, 0xB6, 0xB7}
+spin_cand = {}
+for o in (o for s, e in CODE_RANGES for o in range(s, e, 4)):
     w = struct.unpack_from('<I', IMG, o)[0]
+    if w >> 24 in SPIN_TOPS:
+        t = w >> 24
+        if t in (0x16, 0x17): d = ((w & 0x3FFFFFF) - (1 << 26)) * 4
+        elif t & 0x7E == 0x36: d = (((w >> 5) & 0x3FFF) - (1 << 14)) * 4 if w & 0x40000 else 4
+        elif t == 0x54: d = (((w >> 5) & 0x7FFFF) - (1 << 19)) * 4 if w & 0x800000 and not w & 0x10 else 4
+        else: d = (((w >> 5) & 0x7FFFF) - (1 << 19)) * 4 if w & 0x800000 else 4
+        if -SPIN_WIN <= d <= 0: spin_cand.setdefault(o + d, []).append(o)
     if w & 0xFFE0001F == 0xD4000001: kinds[o] = ('svc', (w >> 5) & 0xFFFF); continue
     if w & 0xFFFFFFE0 == 0xD53BD040: kinds[o] = ('tpidr_r', None); continue
     if w & 0xFFFFFFE0 == 0xD51BD040: kinds[o] = ('tpidr_w', None); continue
@@ -689,8 +716,7 @@ for o in (o for s, e in zip([0] + [e for _, e in DATA_BLOCKS], [s for s, _ in DA
     if w & 0xFFFFFFE0 == 0xD53B0020: kinds[o] = ('ctr', w & 31); continue
     # sub sp, sp, xN (extended register, LSL #0): sp may end up misaligned, which Horizon allows and Apple's kernel does not (site_sp_align); with x18 it is an x18 site (site_sp)
     if w & 0xFFE0FFFF == 0xCB2063FF and (w >> 16) & 31 != 18: kinds[o] = ('sp_align', (w >> 16) & 31); continue
-    for ins in md.disasm(IMG[o:o + 4], o):
-        if has18(ins): kinds[o] = ('x18', None)
+    if o in x18: kinds[o] = ('x18', None)
 
 # Take the instruction table per function, find the windows and jump tables
 import bisect
@@ -1267,6 +1293,215 @@ if FS_STATE_OFF and BUILD_ID == '0effe4af1dec3a7966b934d4a7c3d2bf':
     emit(0xbd004660); emit(B(here(), 0x2e77fc))                      # orig: str s0,[x19,#0x44]; back
     fs_put(0x2e77f8, [B(0x2e77f8, start)], 'frame step: the base clock steps by the host\'s vsyncs (state page target fps; 0 = the game\'s measured step)')
 
+# ---- Spin waits (every module) ----
+# A guest loop that polls memory until another thread changes it fills only its own core on the Switch, where any higher-priority thread pinned there preempts it, so the
+# spin costs the game nothing; on the host it takes a whole core from the threads doing the work. Paper Mario: The Thousand-Year Door's gfx::ParallelManager workers
+# (main+0xa8e680, three, pinned at priority 45) poll their job list this way while a batch is pending; on an iPhone Rogueport ran at 24 fps with the three at 94% of a core each.
+# A loop counts as a spin wait only when it provably cannot leave by itself. From its head T, every pass along the region R (the paths from T back to T, within SPIN_WIN bytes
+# after T) runs only loads, register and flag arithmetic, direct branches and barriers: no store, call, SVC, system register or event wait; and no register or flag that is
+# live at T is written in R (no counter, cursor or delay). One exception: an exclusive add of a constant (ld(a)xr; add/sub #k; st(l)xr; cbnz) that every path back to T
+# undoes on the same address (a worker that registers with a job, sees it finished and backs out). Such a pass leaves memory and registers as it found them, so only another
+# thread can end the loop, and a pause there changes only timing. R is copied into the patch area; the original back-edges jump to the copy (no pause on the first pass, so a
+# single retry costs nothing), the copy's back-edges go through a spin gate, which the host takes as a yield with the yield back-off (hle_thread.c dm_spin_wait), and exits
+# from the copy go back to the original code. The gate keeps every register and the flags (entry.S)
+SPIN_PATHS, SPIN_STEPS = 256, 4096   # complete paths back to T; search steps (R itself lies within SPIN_WIN bytes)
+SPIN_LSE = ('ldadd', 'ldclr', 'ldeor', 'ldset', 'ldsmax', 'ldsmin', 'ldumax', 'ldumin')
+SPIN_BAD = {'bl', 'blr', 'br', 'ret', 'eret', 'svc', 'hvc', 'smc', 'brk', 'hlt', 'udf', 'mrs', 'msr', 'sys', 'sysl', 'wfe', 'wfi', 'sev', 'sevl', 'clrex', 'dc', 'ic', 'at',
+            'tlbi', 'drps', 'dcps1', 'dcps2', 'dcps3', 'blraa', 'blrab', 'blraaz', 'blrabz', 'braa', 'brab', 'braaz', 'brabz', 'retaa', 'retab', 'eretaa', 'eretab'}
+spin_dec = {}
+def spin_ins(a):
+    if a not in spin_dec: spin_dec[a] = next(md.disasm(bytes(IMG[a:a + 4]), a), None)
+    return spin_dec[a]
+def spin_norm(n):
+    n = {'fp': 'x29', 'lr': 'x30', 'wsp': 'sp'}.get(n, n)
+    if n in ('wzr', 'xzr'): return None
+    m = re.fullmatch(r'[wx](\d+)', n)
+    if m: return 'x' + m.group(1)
+    m = re.fullmatch(r'[bhsdqv](\d+)', n)
+    return 'v' + m.group(1) if m else n
+def spin_rw(ins):
+    """(registers read, registers written), w / x and the vector views merged. Capstone's own lists are not enough: it lists a compare's first operand as written and the flags
+    as read by cbz / tbz, and leaves out the destination of adds (sdk+0x31033c in Paper Mario: The Thousand-Year Door, adds w9,w9,#8; b.ne: a counted loop). So every register
+    operand counts as well: operand 0 written and the others read, or for a load all of them written (its address registers are in capstone's reads)"""
+    m = ins.mnemonic
+    regs = [spin_norm(ins.reg_name(o.reg)) for o in ins.operands if o.type == ARM64_OP_REG]
+    ops = set(regs) - {None}
+    if m in ('cbz', 'cbnz', 'tbz', 'tbnz'): return ops, set()
+    if m.startswith('b.'): return {'nzcv'}, set()
+    if m == 'b': return set(), set()
+    if m in ('cmp', 'cmn', 'tst', 'fcmp', 'fcmpe'): return ops, {'nzcv'}
+    if m in ('ccmp', 'ccmn', 'fccmp', 'fccmpe'): return ops | {'nzcv'}, {'nzcv'}
+    r, w = ins.regs_access()
+    r, w = {spin_norm(ins.reg_name(x)) for x in r} - {None}, {spin_norm(ins.reg_name(x)) for x in w} - {None}
+    if m.startswith(('ld', 'prfm', 'prfum')): return r, w | ops
+    return r | (set(regs[1:]) - {None}), w | (set(regs[:1]) - {None})
+def spin_kind(ins):
+    """'br' direct branch, 'pc' adr / adrp, 'ok' a load or register / flag arithmetic, None anything else"""
+    if ins is None: return None
+    m = ins.mnemonic
+    if m in ('b', 'cbz', 'cbnz', 'tbz', 'tbnz') or m.startswith('b.'): return 'br'
+    if m in ('adr', 'adrp'): return 'pc'
+    if m in SPIN_BAD or m.startswith(('st', 'cas', 'swp') + SPIN_LSE): return None
+    mem = any(o.type == ARM64_OP_MEM for o in ins.operands)
+    if m.startswith(('ld', 'prfm', 'prfum')): return 'ok' if mem else None   # no memory operand: a pc-relative literal load
+    return None if mem else 'ok'
+def spin_rmw(a):
+    """ld(a)xr wA,[xN]; add|sub wB,wA,#k; st(l)xr wS,wB,[xN]; cbnz wS,<the load> at a → (xN, ±k, registers written, the four instructions), or None"""
+    l = [spin_ins(a + 4 * i) for i in range(4)]
+    if None in l or l[0].mnemonic not in ('ldxr', 'ldaxr') or l[1].mnemonic not in ('add', 'sub') or l[2].mnemonic not in ('stxr', 'stlxr') or l[3].mnemonic != 'cbnz': return None
+    r = lambda x, i: x.reg_name(x.operands[i].reg)
+    if len(l[1].operands) != 3 or l[1].operands[2].type != ARM64_OP_IMM or 'lsl' in l[1].op_str: return None
+    base = l[0].operands[1].mem
+    if base.disp or base.index or l[2].operands[2].mem.base != base.base or l[2].operands[2].mem.disp: return None
+    if r(l[1], 1) != r(l[0], 0) or r(l[2], 1) != r(l[1], 0) or r(l[3], 0) != r(l[2], 0) or l[3].operands[1].imm != a: return None
+    k = l[1].operands[2].imm * (1 if l[1].mnemonic == 'add' else -1)
+    return spin_norm(l[0].reg_name(base.base)), k, {spin_norm(r(l[0], 0)), spin_norm(r(l[1], 0)), spin_norm(r(l[2], 0))} - {None}, l
+def spin_rebranch(ins, pc, tgt):
+    """the direct branch ins re-encoded at pc with target tgt"""
+    w = struct.unpack('<I', ins.bytes)[0]; off = tgt - pc
+    if ins.mnemonic == 'b': return B(pc, tgt)
+    if ins.mnemonic in ('tbz', 'tbnz'):
+        assert -(1 << 15) <= off < (1 << 15) and off % 4 == 0, f'spin wait tbz out of range {pc:#x}'
+        return (w & ~(0x3FFF << 5)) | (((off >> 2) & 0x3FFF) << 5)
+    assert -(1 << 20) <= off < (1 << 20) and off % 4 == 0, f'spin wait branch out of range {pc:#x}'
+    return (w & ~(0x7FFFF << 5)) | (((off >> 2) & 0x7FFFF) << 5)
+spin_touched = set(kinds) | done | {o for off, oid, ow, why in obs for o in (off,)} | {o for off, ob, nb, why in cuts for o in range(off, off + len(ob) // 2, 4)}
+# Instruction words that end every path through them, told apart by their encoding alone: bl; br / blr / ret; svc / brk; str / strb / strh and the vector str (unsigned offset;
+# unscaled, pre / post-index; register offset); stp / stnp; ldadd and the other LSE atomics. Exclusive stores are left to the full check (the exclusive add), and so are the pre /
+# post-index loads: a seqlock read in SDK 15's nn::time (sdk+0x3d3270) moves a base it sets again on each pass
+SPIN_STOP = ((0xFC000000, 0x94000000), (0xFE000000, 0xD6000000), (0xFF000000, 0xD4000000), (0x3FC00000, 0x39000000), (0x3FC00000, 0x3D000000), (0x3FC00000, 0x3D800000),
+             (0x3FE00000, 0x38000000), (0x3FE00C00, 0x38200800), (0x3FE00000, 0x3C000000), (0x3FE00000, 0x3C800000), (0x3A400000, 0x28000000), (0x3F200C00, 0x38200000))
+def spin_quick(T, hi):
+    """a back-edge to T can be reached from T without passing a word of SPIN_STOP (only such heads get the full check, which decodes)"""
+    seen, todo = set(), [T]
+    while todo:
+        a = todo.pop()
+        if a in seen or not T <= a <= hi: continue
+        seen.add(a); w = struct.unpack_from('<I', IMG, a)[0]; t = w >> 24
+        if 0x14 <= t <= 0x17: succ = (a + (((w & 0x3FFFFFF) ^ 0x2000000) - 0x2000000) * 4,)
+        elif t == 0x54 or t & 0x7E == 0x34: succ = (a + ((((w >> 5) & 0x7FFFF) ^ 0x40000) - 0x40000) * 4, a + 4)
+        elif t & 0x7E == 0x36: succ = (a + ((((w >> 5) & 0x3FFF) ^ 0x2000) - 0x2000) * 4, a + 4)
+        elif any(w & m == v for m, v in SPIN_STOP): continue
+        else: succ = (a + 4,)
+        if T in succ: return True
+        todo.extend(succ)
+    return False
+class SpinNo(Exception): pass
+def spin_region(T, bes):
+    """the spin wait region with head T (bes: the backward branches to T found by the scan) → dict, or None"""
+    hi = max(bes)
+    if any(s < hi + 4 and T < e for s, e in DATA_BLOCKS) or not spin_quick(T, hi): return None
+    nodes, back, bad, inner = {}, set(), set(), set()
+    todo = [T]
+    while todo:
+        a = todo.pop()
+        if a in nodes or a in bad: continue
+        rmw = spin_rmw(a) if a + 12 <= hi and struct.unpack_from('<I', IMG, a)[0] & 0x3FE00000 == 0x08400000 else None   # ldxr / ldaxr
+        if rmw:
+            n = {'kind': 'rmw', 'base': rmw[0], 'k': rmw[1], 'ins': rmw[3], 'uses': {rmw[0]}, 'defs': rmw[2], 'succ': [a + 16]}
+        else:
+            x = spin_ins(a); k = spin_kind(x)
+            if k is None: bad.add(a); continue
+            if k == 'br':
+                t = x.operands[-1].imm
+                succ = [t] if x.mnemonic == 'b' else [t, a + 4]
+            else: succ = [a + 4]
+            n = {'kind': k, 'ins': [x], 'succ': succ}
+        if any(a + 4 * i in spin_touched for i in range(len(n['ins']))): bad.add(a); continue
+        nodes[a] = n
+        if n['kind'] == 'rmw': inner |= {a + 4, a + 8, a + 12}
+        for s in n['succ']:
+            if s == T: back.add(a)
+            elif T < s <= hi: todo.append(s)
+    if not back or inner & set(nodes) or any(s in inner for n in nodes.values() for s in n['succ']): return None
+    def prune(ends):
+        keep, more = set(ends), True
+        while more:
+            more = False
+            for a, n in nodes.items():
+                if a not in keep and any(s in keep and s != T for s in n['succ']): keep.add(a); more = True
+        return keep
+    R = prune(back)
+    for a in R:
+        if 'uses' not in nodes[a]: nodes[a]['uses'], nodes[a]['defs'] = spin_rw(nodes[a]['ins'][0])
+    # every path from T to a back-edge: no inner cycle, and the exclusive adds on each address (a register between two writes to it) sum to 0
+    bad_back, cnt = set(), [0, 0]
+    def walk(a, onpath, ver, delta):
+        cnt[1] += 1
+        if cnt[1] > SPIN_STEPS: raise SpinNo
+        n = nodes[a]
+        if n['kind'] == 'rmw':
+            key = (n['base'], ver.get(n['base'], 0)); delta = dict(delta); delta[key] = delta.get(key, 0) + n['k']
+        if n['defs']: ver = dict(ver); ver.update({r: ver.get(r, 0) + 1 for r in n['defs']})
+        for s in n['succ']:
+            if s == T:
+                cnt[0] += 1
+                if cnt[0] > SPIN_PATHS: raise SpinNo
+                if any(delta.values()): bad_back.add(a)
+            elif s in R:
+                if s in onpath: raise SpinNo
+                walk(s, onpath | {s}, ver, delta)
+    try: walk(T, {T}, {}, {})
+    except SpinNo: return None
+    valid = back - bad_back
+    if not valid: return None
+    R = prune(valid)
+    # no state carried from one pass to the next: nothing live at T is written in R
+    live, more = {a: set() for a in R}, True
+    while more:
+        more = False
+        for a in sorted(R, reverse=True):
+            n, out = nodes[a], set()
+            for s in n['succ']:
+                if s == T: out |= live[T] if a in valid else set()
+                elif s in R: out |= live[s]
+            new = n['uses'] | (out - n['defs'])
+            if new != live[a]: live[a] = new; more = True
+    if live[T] & set().union(*(nodes[a]['defs'] for a in R)): return None
+    return {'T': T, 'R': sorted(R), 'nodes': nodes, 'valid': valid}
+def spin_emit(g):
+    T, R, nodes, valid = g['T'], g['R'], g['nodes'], g['valid']
+    cpy, fixes, tramp = {}, [], {}
+    for i, a in enumerate(R):
+        n = nodes[a]; cpy[a] = here(); x = n['ins'][0]
+        if n['kind'] == 'rmw':
+            for y in n['ins'][:3]: emit(struct.unpack('<I', y.bytes)[0])
+            fixes.append((len(patch), n['ins'][3], a)); emit(0)         # retry: the copy's exclusive load
+        elif n['kind'] == 'pc':
+            rd, tgt = num(spin_norm(x.reg_name(x.operands[0].reg))), x.operands[1].imm
+            emit(ADRP(rd, here(), tgt))
+            if x.mnemonic == 'adr': emit(ADDI(rd, rd, tgt & 0xFFF))
+        elif n['kind'] == 'br': fixes.append((len(patch), x, None)); emit(0)
+        else: emit(struct.unpack('<I', x.bytes)[0])
+        if not (n['kind'] == 'br' and x.mnemonic == 'b'):
+            ft = a + 4 * len(n['ins'])
+            if not (i + 1 < len(R) and R[i + 1] == ft): fixes.append((len(patch), None, ft)); emit(0)   # the next instruction is not the next one copied
+    pause = here()
+    emit(STP_PRE(29, 30, 31, -16)); emit_gate_call(); emit(BLR(30)); ret = here(); emit(LDP_POST(29, 30, 31, 16))
+    gates.append((ret, 'spin', 0, T)); emit(B(here(), cpy[T]))
+    def out(t):   # an exit taken by a conditional branch: through a b next to the copy
+        if t not in tramp: tramp[t] = here(); emit(B(here(), t))
+        return tramp[t]
+    for idx, x, info in fixes:
+        pc = PATCH_OFF + idx
+        if x is None: w = B(pc, cpy.get(info, info))
+        elif info is not None: w = spin_rebranch(x, pc, cpy[info])
+        else:
+            t, cond = x.operands[-1].imm, x.mnemonic != 'b'
+            d = pause if t == T and x.address in valid else cpy[t] if t in cpy and t != T else out(t) if cond else t
+            w = spin_rebranch(x, pc, d)
+        struct.pack_into('<I', patch, idx, w)
+    for b in sorted(valid):   # the original back-edges enter the copy
+        x = nodes[b]['ins'][0]
+        if x.mnemonic == 'b': put_branch(b, cpy[T])
+        else: st = here(); emit(spin_rebranch(x, here(), cpy[T])); emit(B(here(), b + 4)); put_branch(b, st)
+    stat('spin')
+spin_regions = [g for g in (spin_region(T, spin_cand[T]) for T in sorted(spin_cand)) if g]   # all found on the unchanged image first: emitting patches back-edges
+spin_sites = [(g['T'], sorted(g['valid']), sum(len(g['nodes'][a]['ins']) for a in g['R'])) for g in spin_regions]
+for g in spin_regions: spin_emit(g)
+if os.environ.get('DM_SPIN_LIST'):
+    for T, bes, n in spin_sites: print(f'{NAME} spin wait {T:#x} ({n} instructions), back-edges ' + ' '.join(f'{b:#x}' for b in bes))
+
 os.makedirs(outdir, exist_ok=True)
 P = lambda ext: os.path.join(outdir, f'{NAME}.{ext}')
 if FAR:   # patch area before the base: file = text + ro + data (padded to 16K) + patch area
@@ -1295,6 +1530,7 @@ with open(P('sites.tsv'), 'w') as f:
     for wseg in windows: f.write(f'{wseg[0].address:#x}\tW\t{wseg[-1].address + 4:#x}\n')
     for a, (b, c) in jumps.items(): f.write(f'{a:#x}\tJ\t{b:#x}\t{c}\n')
     for a, tgt in tabjumps.items(): f.write(f'{a:#x}\tT\t' + ' '.join(f'{t:#x}' for t in tgt) + '\n')   # offset-table jump and all its targets
+    for t, bes, n in spin_sites: f.write(f'{t:#x}\tS\t' + ' '.join(f'{b:#x}' for b in bes) + '\n')   # spin wait: its head and the back-edges that enter its copy
 with open(P('cuts.tsv'), 'w') as f:
     f.write(f'# BUILD_ID\t{BUILD_ID}\n')
     for off, ob, nb, why in cuts: f.write(f'{off:#x}\t{ob}\t{nb}\t{why}\n')   # Columns: offset, original bytes, new bytes, reason
