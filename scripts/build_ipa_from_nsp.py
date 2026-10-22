@@ -891,16 +891,15 @@ def decode_ue_shaders(repo, dirs, pkg_ver, patched, work, env, logs, g):
     """A game with Unreal paks (Octopath Traveler 0): Unreal Engine keeps its shaders in the shader code archives of its paks, each shader Oodle-compressed, and only the game's own Oodle
     decodes them. dm/gfx/tools/uepak.py takes the archives out of the paks (the pak index is AES-encrypted with a key from main) and writes one Oodle job; the game's code decodes it in the Mac host
     (DM_OODLE_JOB, dm/host/hle_oodle.c: right before nnMain, then the host exits), and the decoded archives go to <version dir>/ue_shaders, where shader_split.py reads them.
-    The job runs the packed version's code (Oodle's format does not change between builds). A folder whose stamp matches its paks is reused"""
+    The job runs the packed version's code (Oodle's format does not change between builds). Unreal Engine 4.26 and later compress shaders with LZ4 by default (DRAGON QUEST VII Reimagined),
+    which uepak.py decodes itself, so such a game needs no host run here. A folder whose stamp matches its paks is reused"""
     sys.path.insert(0, str(repo / 'dm/gfx/tools')); import uepak
     todo = {v: d for v, d in dirs.items() if not ((d / 'ue_shaders/stamp').exists() and (d / 'ue_shaders/stamp').read_text() == ue_stamp(d))}
     PROG.stage('UE shader decode')
     if not todo:
         say(f'reusing the decoded shader archives: {", ".join(str(d / "ue_shaders") for d in dirs.values())}')
         PROG.end('reused'); return
-    PROG.set(step='building the Mac host')
-    host = build_mac_host(repo, work / 'tools/dmhost', env, logs, g)
-    t0, total = time.time(), 0
+    t0, total, host = time.time(), 0, None
     for v, d in todo.items():
         jd, rd, log = work / f'tmp/ue_job_{v}', work / 'tmp/ue_run', logs / f'ue_decode_{v}.log'
         rmtree(jd); rmtree(rd)
@@ -908,14 +907,19 @@ def decode_ue_shaders(repo, dirs, pkg_ver, patched, work, env, logs, g):
         PROG.set(step=f'{v}: shader archives out of the paks')
         listing, n = uepak.job(str(d / 'RomFS'), str(d / 'ExeFS/main'), str(jd))
         if not listing: raise BuildError(f'the RomFS has Unreal paks, but none under {d / "RomFS"} holds a shader code archive: where the shaders are has to be found first')
-        say(f'{v}: ' + '; '.join(f'{x["name"]} {x["shaders"]:,} shaders' for x in listing) + f'; decoding {n:,} with the game\'s Oodle in the Mac host')
-        PROG.set(step=f'{v}: decoding {n:,} shaders in the Mac host')
-        henv = dict(env, DM_ROMFS=str(dirs[pkg_ver] / 'RomFS'), DM_SAVE=str(rd / 'save'), DM_TEMP=str(rd / 'temp'), DM_MSL_DIR=str(rd / 'msl'), DM_OODLE_JOB=str(jd / 'oodle.job'))
-        rc = boot_mac(host, patched, henv, rd, log, UE_DECODE_SECS)
-        if rc != 0 or not (jd / 'oodle.job.out').exists():
-            PROG.end(ok=False)
-            PROG.say(f'---- last lines of {log} ----\n' + ''.join(collections.deque(open(log, errors='replace'), maxlen=20)).rstrip('\n'))
-            raise BuildError(f'the Oodle decode run stopped with exit {rc} (host output: {log})')
+        say(f'{v}: ' + '; '.join(f'{x["name"]} {x["shaders"]:,} shaders' + (f' ({x["compression"]})' if x.get('compression') else '') for x in listing)
+            + (f'; decoding {n:,} with the game\'s Oodle in the Mac host' if n else ''))
+        if n:   # Oodle-compressed shaders (Octopath Traveler 0); LZ4 ones (Unreal Engine 4.26 and later by default) are decoded by uepak.py already
+            if not host:
+                PROG.set(step='building the Mac host')
+                host = build_mac_host(repo, work / 'tools/dmhost', env, logs, g)
+            PROG.set(step=f'{v}: decoding {n:,} shaders in the Mac host')
+            henv = dict(env, DM_ROMFS=str(dirs[pkg_ver] / 'RomFS'), DM_SAVE=str(rd / 'save'), DM_TEMP=str(rd / 'temp'), DM_MSL_DIR=str(rd / 'msl'), DM_OODLE_JOB=str(jd / 'oodle.job'))
+            rc = boot_mac(host, patched, henv, rd, log, UE_DECODE_SECS)
+            if rc != 0 or not (jd / 'oodle.job.out').exists():
+                PROG.end(ok=False)
+                PROG.say(f'---- last lines of {log} ----\n' + ''.join(collections.deque(open(log, errors='replace'), maxlen=20)).rstrip('\n'))
+                raise BuildError(f'the Oodle decode run stopped with exit {rc} (host output: {log})')
         out = d / 'ue_shaders.partial'; rmtree(out)
         uepak.finish(str(jd), str(out)); (out / 'stamp').write_text(ue_stamp(d))
         swap_in(out, d / 'ue_shaders'); rmtree(jd); rmtree(rd); total += n
