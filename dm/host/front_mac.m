@@ -1,10 +1,12 @@
-// Mac front end: with DM_WINDOW=1 open a window (CAMetalLayer, for the graphics backend to present frames) + keyboard → dm_input; the guest runs on a large-stack thread instead and the main thread belongs to AppKit.
+// Mac front end: with DM_WINDOW=1 open a window (CAMetalLayer, for the graphics backend to present frames) + keyboard and controllers → dm_input; the guest runs on a large-stack thread instead and the main thread belongs to AppKit.
 // Without DM_WINDOW: the guest runs directly on the current thread, behaving the same as with no front end (windowless tests use this).
 // The window is fullscreen-capable (the green button and ⌃⌘F); DM_FULLSCREEN starts it that way.
 // Key map (Nintendo layout): WASD left stick, arrow keys D-pad, J=A K=B U=X I=Y, Q=L E=R, Z=ZL C=ZR, F=press left stick G=press right stick, Return=+ Tab=−, Space=shake the controller.
+// Controllers: buttons by position as on the iPhone (right A, bottom B, top X, left Y), shoulders L R, triggers ZL ZR, Menu + Options −, both sticks and their presses.
 #import <Cocoa/Cocoa.h>
 #import <QuartzCore/CAMetalLayer.h>
 #import <Metal/Metal.h>
+#import <GameController/GameController.h>
 #include "dm.h"
 #include "dm_input.h"
 #include "front.h"
@@ -41,6 +43,28 @@ static void on_key(NSEvent *e, int down) {
     push();
 }
 
+// Physical controllers (GameController) go to dm_pad_set, as the iPhone's do (DmGamepad.m read_pad, same layout): ORed with the keyboard, a non-zero stick wins.
+// DM_KEYS uses the same path, so a controller touched during a script takes it over
+static int32_t pad_axis(float v) { return (int32_t)(fmaxf(-1.f, fminf(1.f, v)) * DM_STICK_MAX); }
+static void pad_read(GCExtendedGamepad *g) {
+    uint64_t m = 0;
+    #define K(btn, bit) if (btn.isPressed) m |= bit
+    K(g.buttonB, DM_BTN_A); K(g.buttonA, DM_BTN_B); K(g.buttonY, DM_BTN_X); K(g.buttonX, DM_BTN_Y);   // by position: right A, bottom B, top X, left Y
+    K(g.leftShoulder, DM_BTN_L); K(g.rightShoulder, DM_BTN_R); K(g.leftTrigger, DM_BTN_ZL); K(g.rightTrigger, DM_BTN_ZR);
+    K(g.buttonMenu, DM_BTN_PLUS); K(g.buttonOptions, DM_BTN_MINUS); K(g.leftThumbstickButton, DM_BTN_LS); K(g.rightThumbstickButton, DM_BTN_RS);   // nil on pads without them: not pressed
+    K(g.dpad.left, DM_BTN_LEFT); K(g.dpad.up, DM_BTN_UP); K(g.dpad.right, DM_BTN_RIGHT); K(g.dpad.down, DM_BTN_DOWN);
+    #undef K
+    dm_pad_set(m, pad_axis(g.leftThumbstick.xAxis.value), pad_axis(g.leftThumbstick.yAxis.value), pad_axis(g.rightThumbstick.xAxis.value), pad_axis(g.rightThumbstick.yAxis.value));
+}
+static void pads_changed(void) {   // every connected pad reports (the last one moved wins); when the last one goes away its buttons and sticks are released
+    int any = 0;
+    for (GCController *c in GCController.controllers) if (c.extendedGamepad) {
+        any = 1; c.extendedGamepad.valueChangedHandler = ^(GCExtendedGamepad *g, GCControllerElement *el) { (void)el; pad_read(g); };
+        pad_read(c.extendedGamepad);
+    }
+    if (!any) dm_pad_set(0, 0, 0, 0, 0);
+}
+
 typedef struct { void (*fn)(void); } guest_arg;
 static void *guest_tramp(void *p) {
     static char alt[65536];                       // The signal alternate stack is per thread; crash printing must also work on the guest thread
@@ -73,6 +97,12 @@ void front_run(void (*guest)(void)) {
         g_screen_fps = (int)(win.screen ?: NSScreen.mainScreen).maximumFramesPerSecond;
         [NSApp activateIgnoringOtherApps:YES];
         if (getenv("DM_FULLSCREEN")) dispatch_async(dispatch_get_main_queue(), ^{ [win toggleFullScreen:nil]; });   // start in fullscreen
+        for (NSNotificationName nm in @[GCControllerDidConnectNotification, GCControllerDidDisconnectNotification])
+            [NSNotificationCenter.defaultCenter addObserverForName:nm object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) {
+                GCController *c = n.object; LOG("controller %s: %s%s", n.name == GCControllerDidConnectNotification ? "connected" : "disconnected",
+                                                c.vendorName.UTF8String ?: "?", c.extendedGamepad ? "" : " (no extended gamepad profile: not used)");
+                pads_changed(); }];
+        pads_changed();
         [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown | NSEventMaskKeyUp handler:^NSEvent *(NSEvent *e) {
             if (e.window != win) return e;   // Only swallow keys for the game window; other windows such as the software keyboard input box receive typing as usual
             if (!e.isARepeat) on_key(e, e.type == NSEventTypeKeyDown);
