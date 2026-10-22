@@ -603,6 +603,19 @@ static void sleep_precise(uint64_t dl) {
         struct timespec ts = {(time_t)(s / 1000000000u), (long)(s % 1000000000u)}; nanosleep(&ts, 0);
     }
 }
+// A guest thread sleeps ns nanoseconds the way SleepThread does: on the guest clock under the deterministic clock, else on time (sleep_precise). Also for host hooks that stand for a
+// call which blocks on hardware (hle_net.c: Poll / Select with nothing to wait on)
+void dm_guest_sleep_ns(int64_t ns) {
+    if (ns <= 0) return;
+    if (dm_detclock_enabled()) {
+        uint64_t deadline = guest_ns() + (uint64_t)ns;
+        while (guest_ns() < deadline) { struct timespec ts = {0, 1000000}; nanosleep(&ts, 0); }
+        return;
+    }
+    thr_t *me = pthread_getspecific(g_keythr); if (me) me->sleeping = 1;
+    sleep_precise(now_ns() + (uint64_t)ns);
+    if (me) me->sleeping = 0;
+}
 int svc_thread(int num, uint64_t *regs) {
     int r = svc_thread_impl(num, regs);
     thr_t *me = pthread_getspecific(g_keythr);
@@ -646,10 +659,7 @@ static int svc_thread_impl(int num, uint64_t *regs) {
     case 0x0A: thread_exit(cur()); return 1;
     case 0x0B: {  // SleepThread(x0 ns); 0/-1/-2 = the various kinds of yield
         int64_t ns = (int64_t)regs[0];
-        if (ns > 0 && dm_detclock_enabled()) {
-            uint64_t deadline = guest_ns() + (uint64_t)ns;
-            while (guest_ns() < deadline) { struct timespec ts = {0, 1000000}; nanosleep(&ts, 0); }
-        } else if (ns >= 20000) { thr_t *me = pthread_getspecific(g_keythr); if (me) me->sleeping = 1; sleep_precise(now_ns() + (uint64_t)ns); if (me) me->sleeping = 0; }
+        if ((ns > 0 && dm_detclock_enabled()) || ns >= 20000) dm_guest_sleep_ns(ns);
         // Yield (0 / -1 / -2), and sleeps shorter than 20 µs, which sleep_precise would return from at once: Super Mario Galaxy's Hagi polls with SleepThread(100 ns) (main+0x517c),
         // which kept a core at 100% (1.4 billion calls in 200 s); as yields they get the back-off below.
         // Count and time of the main thread's yields are recorded: a render task graph's "wait for everything to finish" is often pure polling + yield; measure how much of a frame it takes

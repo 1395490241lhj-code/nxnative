@@ -23,6 +23,7 @@
 #   · SPK (Capcom's MT Framework, The Great Ace Attorney Chronicles): the shader package inside an ARC archive (zlib entries), code area + control section per shader, see mtarc_members and mtspk_shaders
 #   · BEA (NintendoWare Bezel Engine archives, Big Brain Academy: Brain vs. Brain): BNSH in the .bfsha entries of the archives (zstd entries), see bea_members
 #   · MGFX (MonoGame effects, Celeste): the effects in its XNB files and SpriteBatch's in main, each shader a control section and a code area, see mgfx_effect
+#   · dvdbnd (FromSoftware, Dark Souls Remastered): GLSLC outputs in the BND3 archives (DCX zlib entries) of the .bdt files, indexed by the .bhd5 beside each, see bhd5_entries and bdt_shaders
 # Code area: 0x30 header + (graphics) 0x50 SPH + instructions; header magic 0x12345678 for graphics, 0x12345679 for compute. The control section starts with 0x98761234, +0x704 = code area length,
 #   +0x700 = start of the c1 constant segment within the code area; for compute +0x748 thread group xyz (u32 ×3), +0x754 shared memory bytes (checked one by one against PC reflection on D2R's 22 compute shaders).
 # Stage: BNSH uses the stage slot; BAHS uses bits 10..13 of SPH word 0 (1 vertex 2 hull 3 domain 4 geometry 5 pixel), and a compute header means compute.
@@ -133,6 +134,26 @@ def mshd_shaders(d, label):
     if len(out) % 2: red(f'{label} MSHD: {len(out)} stages, not in pairs')
     return out
 
+def glslc_stage(ctl, code):
+    """A GLSLC output's stage, from its code area's header (graphics: the SPH's stage bits), or compute when the code has no header and the control's thread group (+0x748) is filled"""
+    headerless_cs = code[:4] not in (CS_MAGIC, GFX_MAGIC) and len(ctl) >= 0x754 and all(struct.unpack_from('<3I', ctl, 0x748))
+    return 'cs' if code[:4] == CS_MAGIC or headerless_cs else SPH_STAGE.get((struct.unpack_from('<I', code, 0x30)[0] >> 10) & 0xf) if code[:4] == GFX_MAGIC and len(code) >= 0x34 else None
+
+def glslc_section(d, h, size):
+    """The GPU code section of the GLSLC output at h, from its section headers: output +0x4c = section count, section i's header at +0x90 + 0x90 i = {u32 size, u32 data offset (from the
+    output), u32 type (0 = GPU code)}; a GPU code header adds +0x30 control offset, +0x34 code offset (both from the section's data), +0x38 code length, +0x3c control length.
+    → (control, code) of its only GPU code section, or None"""
+    n, secs = struct.unpack_from('<I', d, h + 0x4c)[0], []
+    if not 0 < n <= 16 or h + 0x90 * (n + 1) > len(d): return None
+    for i in range(n):
+        s = h + 0x90 + 0x90 * i
+        ssz, soff, typ = struct.unpack_from('<3I', d, s)
+        if typ: continue
+        co, ko, kn, cn = struct.unpack_from('<4I', d, s + 0x30)
+        if soff + ssz > size or co + cn > ssz or ko + kn > ssz: return None
+        secs.append((d[h + soff + co:h + soff + co + cn], d[h + soff + ko:h + soff + ko + kn]))
+    return secs[0] if len(secs) == 1 else None
+
 def glslc_shaders(d, label, need=True):
     """GLSLC compiler outputs (838 in 13 Sentinels' main read-only segment, one stage each): from the magic 0x19866891, +0x44 = the whole output's length; each output holds exactly one control section with the code area right after it (control +0x20 = control length).
     The magic is only 4 bytes, so only outputs that pass the triple check are kept. Every game's main is searched: Unity's player has 11 of its own (Fire Emblem Engage, Ace Attorney Investigations
@@ -147,11 +168,16 @@ def glslc_shaders(d, label, need=True):
         c = d.find(CTL_MAGIC, h, h + size) if 0x760 < size <= len(d) - h else -1
         if c < 0 or d.find(CTL_MAGIC, c + 4, h + size) >= 0: continue
         nctl, ncode = struct.unpack_from('<I', d, c + 0x20)[0], struct.unpack_from('<I', d, c + 0x704)[0]
-        if nctl < 0x760 or nctl & 3 or c + nctl + ncode > h + size: continue
         ctl, code = d[c:c + nctl], d[c + nctl:c + nctl + ncode]
-        headerless_cs = code[:4] not in (CS_MAGIC, GFX_MAGIC) and all(struct.unpack_from('<3I', ctl, 0x748))
-        st = 'cs' if code[:4] == CS_MAGIC or headerless_cs else SPH_STAGE.get((struct.unpack_from('<I', code, 0x30)[0] >> 10) & 0xf) if code[:4] == GFX_MAGIC else None
-        if not st or check(label, st, ctl, code): continue
+        st = glslc_stage(ctl, code) if nctl >= 0x760 and not nctl & 3 and c + nctl + ncode <= h + size else None
+        if not st or check(label, st, ctl, code):
+            # SDK 4's GLSLC (output version 0x20.4, Dark Souls Remastered: 44 of main's 72 outputs and the pixel shaders in its archives) writes control sections whose +0x20 is
+            # 12 bytes short of their length, so the code area is not right after it; the output's own section header says where both are (glslc_section). Only outputs the rule
+            # above rejects are read this way: on every output it keeps (1,073 in 13 Sentinels, Three Houses, FINAL FANTASY TACTICS, Engage and Age of Calamity) both give the same key
+            sec = glslc_section(d, h, size)
+            if not sec: continue
+            ctl, code = sec; st = glslc_stage(ctl, code)
+            if not st or check(label, st, ctl, code): continue
         out.append((f'{label}#GLSLC@{h:#x}', st, ctl, code))
     if not out and need: red(f'{label}: no GLSLC output')
     return out
@@ -362,6 +388,68 @@ def bea_members(d, label):
             zstd = zstd or zstd_mod(); data = zstd.decompress(data)
         if len(data) != usz: red(f'{label}/{path}: {len(data):#x} bytes, the entry says {usz:#x}')
         yield path, data
+
+BHD5, DCX, BND3 = b'BHD5', b'DCX\0', b'BND3'
+def bhd5_entries(path):
+    """FromSoftware's dvdbnd archive (Dark Souls Remastered: dvdbnd0.bdt and dvdbnd1.bdt, 3.6 GB, starting 'BDF3'), indexed by the .bhd5 file beside it: 'BHD5', 0xff (little-endian), u32 1, u32 file size,
+    u32 bucket count, u32 0, u64 bucket table offset; each 16-byte bucket {u32 count, u32, u64 offset} points at count 16-byte entries {u32 path hash, u32 size, u64 offset in the .bdt}.
+    The index holds only path hashes, no names. → [(hash, offset, size)], or None when there is no index beside the file"""
+    idx = path[:-4] + '.bhd5'
+    if not path.endswith('.bdt') or not os.path.exists(idx): return None
+    with open(idx, 'rb') as f: d = f.read()
+    if d[:5] != BHD5 + b'\xff': red(f'{idx}: not a little-endian BHD5 index')
+    nb, tab = struct.unpack_from('<I4xQ', d, 0x10)
+    out = []
+    for i in range(nb):
+        n, _, at = struct.unpack_from('<IIQ', d, tab + 16 * i)
+        out += [(h, off, size) for h, size, off in struct.iter_unpack('<IIQ', d[at:at + 16 * n])]
+    return out
+
+def bdt_jobs(files, parts=64):
+    """The entries of every dvdbnd archive, in ranges of about equal stored size, one scan job each. → ([(path, rel, entries), …], the .bdt paths taken)"""
+    jobs, taken = [], set()
+    for p, r in files:
+        ents = bhd5_entries(p)
+        if ents is None: continue
+        taken.add(p); ents.sort(key=lambda e: e[1]); step, cur, size = sum(e[2] for e in ents) / parts, [], 0
+        for e in ents:
+            cur.append(e); size += e[2]
+            if size >= step: jobs.append((p, r, tuple(cur))); cur, size = [], 0
+        if cur: jobs.append((p, r, tuple(cur)))
+    return jobs, taken
+
+def undcx(d, label):
+    """FromSoftware's DCX container (big-endian): 'DCX\\0', +0x18 'DCS\\0' u32 length, u32 stored length, +0x24 'DCP\\0' + the method, +0x44 'DCA\\0' u32 8, then the stream. Dark Souls Remastered
+    uses only DFLT (a zlib stream) on all 5,184 of its DCX entries"""
+    import zlib
+    n, csz = struct.unpack_from('>II', d, 0x1c)
+    if d[0x28:0x2c] != b'DFLT' or d[0x44:0x48] != b'DCA\0': red(f'{label}: DCX method {d[0x28:0x2c]}: only DFLT is known')
+    out = zlib.decompress(d[0x4c:0x4c + csz])
+    if len(out) != n: red(f'{label}: DCX holds {len(out):#x} bytes, its header says {n:#x}')
+    return out
+
+def bnd3_members(d, label):
+    """FromSoftware's BND3 archive: 'BND3', 8 bytes of version, u8 format, u8 big-endian, u8 bit-big-endian, u8 0, i32 count, i32 header end, 8 bytes 0, then count 28-byte entries {u8 flags, 3 bytes 0,
+    i32 length, u64 offset, i32 ID, u32 name offset, i32 unpacked length} (the formats Dark Souls Remastered uses, 0x5c and 0x7c: 64-bit offsets, IDs, names and the unpacked length). Names are
+    Shift JIS paths ('N:\\FRPG\\Source\\Shader\\…') or base names. → (name, data) of each entry"""
+    if d[12] not in (0x5c, 0x7c) or d[13]: red(f'{label}: BND3 format {d[12]:#x}, big-endian {d[13]}: only formats 0x5c and 0x7c, little-endian, are known')
+    for i in range(struct.unpack_from('<i', d, 0x10)[0]):
+        _, n, off, _, nm, usz = struct.unpack_from('<B3xiQiIi', d, 0x20 + 28 * i)
+        if n != usz: red(f'{label}: BND3 entry {i} is compressed ({n:#x} of {usz:#x} bytes)')
+        name = d[nm:d.index(b'\0', nm)].decode('shift-jis', 'replace').replace('\\', '/')
+        yield name.split('/Source/', 1)[-1], d[off:off + n]
+
+def bdt_shaders(path, rel, ents, out):
+    """Dark Souls Remastered's shaders: GLSLC outputs, one per BND3 entry ('.vpo' vertex, '.fpo' pixel; 3,225 in six DCX-compressed BND3 archives in dvdbnd0.bdt, 3,088 of them the
+    FLVER material shaders). The engine combines vertex and pixel shaders per draw, so they are paired as single-stage programs (separable_pairs)"""
+    import mmap
+    with open(path, 'rb') as f, mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as m:
+        for h, off, n in ents:
+            label = f'/{rel}#{h:08x}'; d = m[off:off + n]
+            if d[:4] == DCX: d = undcx(d, label)
+            if d[:4] != BND3 or b'\x91\x68\x86\x19' not in d: continue   # the game's other BND3 archives use other formats (0x78) and hold no shaders
+            for nm, b in bnd3_members(d, label):
+                if b[:4] == b'\x91\x68\x86\x19': out.extend(glslc_shaders(b, f'{label}/{nm}'))
 
 class _Rd:   # a little-endian reader over bytes, with .NET's BinaryReader strings (7-bit encoded length + UTF-8)
     def __init__(s, d, p): s.d, s.p = d, p
@@ -796,6 +884,9 @@ def scan_file(args):
     if len(args) > 2 and head[:4] == KPKA:   # entries of an RE Engine PAK (kpka_jobs)
         kpka_shaders(path, rel, args[2], found)
         return rel, uniq_keys(found), var_pairs(found), trees
+    if len(args) > 2 and head[:4] == b'BDF3':   # entries of a FromSoftware dvdbnd archive (bdt_jobs)
+        bdt_shaders(path, rel, args[2], found)
+        return rel, uniq_keys(found), var_pairs(found), trees
     if len(args) > 2:   # a range of LINKDATA entries (linkdata_jobs)
         linkdata_shaders(path, rel, args[2], found)
         return rel, uniq_keys(found), var_pairs(found), trees
@@ -879,8 +970,9 @@ def main():
     pak_jobs, paks = kpka_jobs(files)   # Monster Hunter Rise's PAKs: the newest copy of each path, in ranges of entries
     tr_jobs, trp = trpfs_jobs(files)   # Pokémon Legends: Z-A's Trinity packs (data.trpfs and its index data.trpfd), decoded by the game's own Oodle in the Mac host
     ue_jobs, uep = ue_legacy_jobs(files)   # DRAGON QUEST XI S's legacy Unreal paks, decoded by the game's own LZ5 in the Mac host
-    big += pak_jobs + tr_jobs + ue_jobs
-    files = [(p, r) for p, r in files if not linkdata_jobs(p, r) and p not in paks and p not in trp and p not in uep]
+    bd_jobs, bdts = bdt_jobs(files)   # Dark Souls Remastered's dvdbnd archives: the entries of each .bdt by its .bhd5 index, in ranges
+    big += pak_jobs + tr_jobs + ue_jobs + bd_jobs
+    files = [(p, r) for p, r in files if not linkdata_jobs(p, r) and p not in paks and p not in trp and p not in uep and p not in bdts]
     with cf.ProcessPoolExecutor(J, initializer=_pool_init, initargs=(common, {}, zdicts)) as ex:
         results += list(ex.map(scan_file, big)) + list(ex.map(scan_file, files, chunksize=16))
     trees, defer = {}, []

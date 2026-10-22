@@ -264,6 +264,13 @@ CUTS = {
     (0x12554, '000040f9', '000400f9', 'job pool wake: ldr x0,[x0] → str x0,[x0,#8] (pending = nonzero: the woken worker signals once more)'),
     (0x12558, '36fc1814', 'fdffff17', 'job pool wake: b SignalEvent → b 0x1254c (ldr x0,[x0]; b SignalEvent)'),
   ],
+  # Dark Souls Remastered 1.0.3 (v196608) main: 60 fps (30 on the Switch). The game presents at interval 1; its render thread (HGCommandDispatcher, main+0x8a4b28) ends each frame in a CPU limiter,
+  # main+0x707090(this, fps): 1000 / fps ms less the time since its last call (nn::os::GetSystemTick), slept out when more than 2 ms are left; the main thread waits for the render thread.
+  # The 30 is a constant at the only call (main+0x706fa4). The game steps by the time that passed (as on the PC and PS4 versions, which run at 60): the same stick input from one save walks
+  # the same distance at 30 and at 60 fps. The limiter's frame-skip mode only starts above 36.4 ms a frame, so 60 does not reach it
+  'df3766a2bb651a3e822828abf10b6f7b': [
+    (0x706fa4, 'e10f1f32', '81078052', 'frame limiter target: mov w1,#30 → mov w1,#60 (main+0x707090 sleeps out 1000 / fps ms since the last frame)'),
+  ],
 }
 # ---- Registered observation gates: {NSO build ID: [(offset, number, original instruction word, reason)]}. Numbers match OBS_* in the host's hle.h;
 # the original instruction must be position independent (no PC-relative / branch / anything involving x18 or tpidr), asserted offline; when the host has no callback attached the gate block goes in and out once and returns ----
