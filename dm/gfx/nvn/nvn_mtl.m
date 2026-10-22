@@ -2723,7 +2723,7 @@ static _Atomic int g_warm_ready;
 static int g_warm_started;
 static uint64_t g_warm_t0;
 static _Atomic int g_warm_running;   // Background warm-up has not finished yet (the loading screen on entering a run waits a little longer based on this, see mtl_warm_wait)
-static uint64_t g_warm_shaders, g_warm_rps, g_warm_cps, g_warm_skip_fz;
+static uint64_t g_warm_shaders, g_warm_rps, g_warm_cps, g_warm_skip_fz, g_warm_skip_stale;
 static uint64_t g_warm_claim_shaders, g_warm_claim_rps, g_warm_claim_cps;
 static id<MTLFunction> bf_fn(NvShader *fs, const int *fx, uint8_t fbmask, const uint8_t *lmap);
 static int rt_range_bindings_ro(NSDictionary *j);
@@ -3990,9 +3990,17 @@ static NSString *warm_key(const char *s, size_t n) {
     size_t z = strnlen(s, n);
     return [[NSString alloc] initWithBytes:s length:z encoding:NSUTF8StringEncoding];
 }
+// A prewarm list may name shaders of another version of the game: the bundled list of the version the profile was brought up on, packed with another version (the NSP script's
+// derived profile: Hollow Knight: Silksong's 1.0.30000 list named 16 shaders its base game 1.0.27776 does not have), or a device's pso_user.tsv kept across a game update.
+// A key the shader map does not have is skipped quietly (counted in the "prewarm done" line); the game never draws with it
 static NvShader *warm_shader(NSMutableDictionary<NSString *, NvShader *> *dict, NSString *key, int stage) {
     NvShader *sh = dict[key];
-    if (!sh) { sh = shader_load(key, stage, 0); if (sh) dict[key] = sh; }
+    if (!sh) {
+        NSString *mk = [key hasSuffix:@"_b"] ? [key substringToIndex:key.length - 2] : key;   // library names are <map key>_b
+        static NSMutableSet<NSString *> *stale; if (!stale) stale = [NSMutableSet set];   // only the warm-up thread calls this
+        if (!g_shmap[mk]) { if (![stale containsObject:key]) { [stale addObject:key]; g_warm_skip_stale++; } return nil; }
+        sh = shader_load(key, stage, 0); if (sh) dict[key] = sh;
+    }
     return sh;
 }
 static void warm_enqueue(WarmItem *item) {
@@ -4049,8 +4057,8 @@ static void warm_worker(NSArray<NSString *> *paths) {
                 }
             }
         }
-        MLOG("pipeline prewarm done: shaders %llu / render pipelines %llu (specialized fragment skipped %llu) / compute pipelines %llu, background time %.1f ms",
-             g_warm_shaders, g_warm_rps, g_warm_skip_fz, g_warm_cps, (bp_now() - g_warm_t0) / 1e6);
+        MLOG("pipeline prewarm done: shaders %llu / render pipelines %llu (specialized fragment skipped %llu) / compute pipelines %llu, background time %.1f ms; shader keys not in the shader map (another game version) %llu",
+             g_warm_shaders, g_warm_rps, g_warm_skip_fz, g_warm_cps, (bp_now() - g_warm_t0) / 1e6, g_warm_skip_stale);
     }
     atomic_store(&g_warm_running, 0);
 }

@@ -44,7 +44,7 @@ Needs iOS / iPadOS 26 or later on an iPhone 15 Pro or newer (A17 Pro chip or lat
 | ![Celeste](docs/images/celeste.jpg)<br>Celeste<br><sub>IPA ~0.9 GB</sub> | ![DRAGON QUEST XI S: Echoes of an Elusive Age – Definitive Edition](docs/images/dragon-quest-xi-s.jpg)<br>DRAGON QUEST XI S: Echoes of an Elusive Age – Definitive Edition<br><sub>IPA ~15 GB · 60 fps (30 on Switch) with update 1.0.4</sub> |
 | ![Monster Train 2](docs/images/monster-train-2.jpg)<br>Monster Train 2<br><sub>IPA ~1.6 GB · 60 fps (30 on Switch) with update 1.1.1</sub> | ![Raging Loop](docs/images/raging-loop.jpg)<br>Raging Loop<br><sub>IPA ~0.9 GB</sub> |
 | ![DARK SOULS: REMASTERED](docs/images/dark-souls-remastered-creation.jpg)<br>DARK SOULS: REMASTERED<br><sub>IPA ~4 GB · 60 fps (30 on Switch) with update 1.0.3</sub> | ![Paper Mario: The Thousand-Year Door](docs/images/paper-mario-the-thousand-year-door.jpg)<br>Paper Mario: The Thousand-Year Door<br><sub>IPA ~5 GB · 60 fps (30 on Switch) with update 1.0.1</sub> |
-| ![Hollow Knight: Silksong](docs/images/hollow-knight-silksong.jpg)<br>Hollow Knight: Silksong<br><sub>IPA ~6.4 GB · with update 1.0.30000</sub> | |
+| ![Hollow Knight: Silksong](docs/images/hollow-knight-silksong.jpg)<br>Hollow Knight: Silksong<br><sub>IPA ~6.4 GB</sub> | |
 
 
 ## Pack an IPA
@@ -58,13 +58,15 @@ brew install --cask dotnet-sdk
 python3 -m pip install lz4 capstone fonttools "backports.zstd; python_version < '3.14'"
 ```
 
-**2. Put one game's NSPs in a folder**, base game (an NSP, or an XCI cartridge dump) and update (and any DLC):
+**2. Put one game's NSPs in a folder**, base game (an NSP, or an XCI cartridge dump), its update if you have one, and any DLC:
 
 ```
 ~/Games/MarioWonder/
   Super Mario Bros. Wonder [010015100B514000][v0].nsp
   Super Mario Bros. Wonder [010015100B514800][v327680].nsp
 ```
+
+Any version works, with or without an update: the script packs the newest version in the folder. Each game was tested on one version (an update named in the table above is the one its 60 fps needs). With another version the script builds the game with that version's own shaders and says that the version was not tested; fixes made for the tested version's code, such as the 60 fps ones, don't apply to it.
 
 **3. Run the script:**
 

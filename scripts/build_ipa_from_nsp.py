@@ -9,7 +9,9 @@
 # Two ways to run it: open this file in Spyder and press F5 (it uses the values under "Settings" below; an empty NSP folder or prod.keys is asked for at run time);
 #   or in a terminal: python3 scripts/build_ipa_from_nsp.py <NSP folder> -k <prod.keys> [options] (values given on the command line override "Settings", -h lists every option;
 #   without keyboard input a missing value is not asked for but reported as an error; exit code 0 on success, 1 on error, 130 when interrupted). Command-line options entered in Spyder's run configuration work the same way.
-# Uses only three things: this repository, a folder holding one game's NSPs (the base game plus the updates listed in the profile's shader_versions are required; DLC NSPs, when present, are packed too and unlock the add-on content already in the game), and prod.keys.
+# Uses only three things: this repository, a folder holding one game's NSPs (the base game, with or without an update; DLC NSPs, when present, are packed too and unlock the add-on content already in the game), and prod.keys.
+#   The newest version in the folder is packed. A version the profile registers (with every version in its shader_versions in the folder) is built from the profile as it is; any other
+#   version (the base game alone, another update) from a profile derived from it in <id>_build/profile: the same settings, and the version's own shaders (derive_profile).
 # Every intermediate file is under <id>_build/ in the NSP folder: extract/ (the extracted game files, kept for the next build unless KEEP_EXTRACTED / --no-keep-extracted), aoc/ (each DLC's RomFS by index), tools/ (nx_extract, and the Mac host for a run-time shader capture), patched_*/, shader/ (shader package and caches, kept so the next build is fast), logs/ (each step's full output), tmp/, ipa/. The finished IPA also goes to the NSP folder by default.
 # The DLC, the rewrite, the shader split and the iOS (or Vulkan) shaders are reused when all their inputs are as at their last successful run (the game files, the tools, the profile, Xcode and spirv-cross: fingerprint() keys beside their output);
 #   the iOS shaders' inputs are the shader package's content and the chain's own tools, so a split that runs again and writes the same package leaves them reused.
@@ -22,7 +24,7 @@ from pathlib import Path
 # ---- Settings ----
 NSP_DIR = '/Volumes/S790/nsp/The Legend of Zelda Tears of the Kingdom/'                            # folder holding the NSPs (empty = ask at run time)
 PROD_KEYS = '/Users/seedds/My Drive/Python_Scripts/nsp_check/prod.keys'                          # path of prod.keys (empty = ask at run time)
-PACKAGE = ''                            # version packed into the IPA (empty = the profile's package; Mario 'v327680' i.e. 1.2.1, or 'v0')
+PACKAGE = ''                            # version packed into the IPA (empty = the newest in the folder; Mario 'v327680' i.e. 1.2.1, or 'v0' for the base game alone)
 OUT_IPA = ''                            # output IPA (empty = <the profile's ipa> in the NSP folder)
 APP_NAME = ''                           # app name on the home screen (empty = the game name in the base NSP)
 BUNDLE_ID = ''                          # the app's bundle ID (empty = org.nxnative.<base game title ID in lowercase>)
@@ -399,16 +401,31 @@ def scan_nsps(nsp_dir):
     return app, fam
 
 
-def pick_nsps(fam, versions):
-    """For each wanted version, (base game, update or None): v0 = the base game alone, v<N> = the base game + the update with version number N"""
+def vnum(ver):   # 'v655360' → 655360
+    return int(ver[1:])
+
+
+def nsp_versions(fam, builds):
+    """The versions the folder holds: {version: its update NSP, or None for v0 (the base game alone)}. An update is known by the [v<N>] tag in its file name; a single update without one
+    is taken for the newest update the profile registers (its build IDs are checked once extracted), and is left out when the profile registers none or other updates are there"""
+    out = {'v0': None}
+    for v, p in fam['updates']:
+        if v is not None: out[f'v{v}'] = p
+    loose = [p for v, p in fam['updates'] if v is None]
+    reg = sorted((b for b in builds if b != 'v0'), key=vnum)
+    if loose and len(fam['updates']) == 1 and reg: out[reg[-1]] = loose[0]
+    elif loose: say(f'[RED] leaving out update NSPs without a version tag ([v<N>]) in their name: {", ".join(p.name for p in loose)}')
+    return out
+
+
+def pick_nsps(fam, have, versions):
+    """For each version to extract, (base game, update or None): v0 = the base game alone, v<N> = the base game + the update with version number N"""
     say(f'base: {fam["base"].name}')
     out = {}
     for ver in versions:
-        if ver == 'v0': out[ver] = (fam['base'], None); continue
-        n = int(ver[1:])
-        upd = [u for v, u in fam['updates'] if v == n] or [u for v, u in fam['updates'] if v is None and len(fam['updates']) == 1]   # without a version in the file name only a single update is accepted; build IDs are checked afterwards
-        if not upd: raise BuildError(f'no NSP for update {ver} (the game profile needs these versions: {", ".join(versions)})')
-        say(f'update {ver}: {upd[0].name}'); out[ver] = (fam['base'], upd[0])
+        if ver not in have: raise BuildError(f'no NSP for update {ver} (the game profile needs these versions: {", ".join(versions)})')
+        if have[ver]: say(f'update {ver}: {have[ver].name}')
+        out[ver] = (fam['base'], have[ver])
     return out
 
 
@@ -572,6 +589,31 @@ def write_profile(pdir, app, f):
         if k in G and G[k][1]: say(f'  {k} {G[k][0]}: {G[k][1]}')
 
 
+# ---- Derived profile (a version the game's profile was not brought up on) ----
+DERIVED_SKIP = {'game.tsv', 'shader_map.tsv', 'shader_facts.tsv', 'shader_pairs.tsv', 'c1_full.tsv', 'cb_extent.tsv', 'dmsh_chain.h', 'vk_capture.tsv'}   # made again from the packed version's own files
+
+
+def derive_profile(g, pdir, ver, d, mods):
+    """The game's profile for a version it was not brought up on (the folder has no update, another update, or files of other builds), in pdir (outside the repository, where a
+    provisional profile goes): its keys as they are, with this version's build row, package and shader versions. The shader tables, the chain header and the run-time capture list are
+    left out: the build makes them again from this version's own files, as for a provisional profile. The hand-written tables (the prewarm list, shader_facts_manual.tsv) are copied:
+    they name shaders by content key. Returns the version's display version"""
+    rmtree(pdir); pdir.mkdir(parents=True)
+    for p in g.dir.iterdir():
+        if p.is_file() and p.name not in DERIVED_SKIP: shutil.copyfile(p, pdir / p.name)
+    T, disp = '\t', nacp.version(d / 'control.nacp') or '?'
+    row = T.join(['build', ver, disp] + [f'{m}={build_id(d / "ExeFS" / m)}' for m in mods if (d / 'ExeFS' / m).exists()])
+    out, put = [f'# Derived from game profile {g.dir} by scripts/build_ipa_from_nsp.py for {ver} ({disp}), a version that profile was not brought up on:',
+                '# its keys as they are, this version\'s build row, and shader tables made from this version\'s own files'], False
+    for line in (g.dir / 'game.tsv').read_text(encoding='utf-8').splitlines():
+        if line.split(T, 1)[0] in ('build', 'package', 'shader_versions'):
+            if not put: out += [row, f'package{T}{ver}', f'shader_versions{T}{ver}']; put = True
+            continue
+        out.append(line)
+    (pdir / 'game.tsv').write_text('\n'.join(out) + '\n', encoding='utf-8')
+    return disp
+
+
 # ---- Stage reuse: a stage whose inputs are all as at its last successful run keeps its output ----
 def files_under(d):   # (relative path, stat) of every file under d, sorted; [] when it does not exist
     out, todo = [], [str(d)]
@@ -659,12 +701,11 @@ def extracted(log):   # (files, bytes) from the summary lines nx_extract wrote t
     return (sum(int(n) for n, _ in rows), int(sum(float(mb) for _, mb in rows) * 2**20)) if rows else None
 
 
-def extract(nx, keys, ex, name, base, upd, cmp_dir, logs, g):
+def extract(nx, keys, ex, name, base, upd, cmp_dir, logs, g):   # the build IDs are checked by the caller (build_mismatch)
     dst, marker, log = ex / name, g.get('romfs_marker'), logs / f'extract_{name}.log'
     if (dst / 'ExeFS' / 'main').exists() and (dst / 'RomFS' / marker).exists():
         PROG.stage(f'extract {name}')
         say(f'reusing the extracted {name}: {dst}')
-        check_build(dst, name, g)
         PROG.end('reused')
         return dst
     tmp = ex / (name + '.partial'); rmtree(tmp)
@@ -673,7 +714,7 @@ def extract(nx, keys, ex, name, base, upd, cmp_dir, logs, g):
         n, b = tree_size(tmp); return {'done': b, 'note': f'{n:,} files'}
     PROG.stage(f'extract {name}', poll=poll, unit='B', total=last[1] if last else base.stat().st_size + (upd.stat().st_size if upd else 0), est=not last)
     run([nx, keys, base, upd or '-', tmp] + ([cmp_dir] if cmp_dir else []) + (['--allow-damaged'] if ALLOW_DAMAGED else []), log)
-    check_build(tmp, name, g); swap_in(tmp, dst)
+    swap_in(tmp, dst)
     n, b = extracted(log) or (0, 0)
     PROG.end(f'{n:,} files, {amount(b, "B")}')
     return dst
@@ -705,12 +746,10 @@ def extract_aoc(nx, keys, repo, work, app, fam, logs):
     return dst
 
 
-def check_build(d, name, g):   # every module's build ID must be the one registered in the profile's build row
-    want = g.builds()[name]
-    for m, bid in want.items():
-        if m == 'display': continue
-        got = build_id(d / 'ExeFS' / m)
-        if got != bid: raise BuildError(f'{m} build ID {got} is not the {name} registered in game profile {g.id} ({bid})')
+def build_mismatch(d, name, g):   # the modules of an extraction whose build ID is not the one the profile's build row of that version registers ([] = the registered build)
+    want = g.builds().get(name)
+    if want is None: return [f'{name} has no build row']
+    return [f'{m} {build_id(d / "ExeFS" / m)} (registered {bid})' for m, bid in want.items() if m != 'display' and build_id(d / 'ExeFS' / m) != bid]
 
 
 def rewrite(py, repo, exe_dir, out, env, logs, g):
@@ -1216,7 +1255,7 @@ def parse_args(argv):
         epilog='example: python3 scripts/build_ipa_from_nsp.py ~/nsp/"Super Mario Bros Wonder" -k ~/keys/prod.keys')
     ap.add_argument('nsp_dir', nargs='?', help='folder holding one game\'s NSPs (default: the NSP_DIR setting, else asked)')
     ap.add_argument('-k', '--keys', help='path of prod.keys (default: the PROD_KEYS setting, else asked)')
-    ap.add_argument('-p', '--package', help='version packed into the IPA, e.g. v327680 / v0 (default: the profile\'s package)')
+    ap.add_argument('-p', '--package', help='version packed into the IPA, e.g. v327680 / v0 (default: the newest in the folder)')
     ap.add_argument('-o', '--out', help='output IPA (default: <the profile\'s ipa> in the NSP folder)')
     ap.add_argument('--app-name', help='app name on the home screen (default: the game name in the base NSP)')
     ap.add_argument('--bundle-id', help='the app\'s bundle ID (default: org.nxnative.<base game title ID in lowercase>)')
@@ -1278,9 +1317,18 @@ def main(args=None):
         say('[RED] provisional game profile: values guessed from the survey, the game may not boot; bring it up per docs/agents after packing')
     say(f'game profile: {g.id}{" (provisional: " + str(g.dir) + ")" if provisional else ""}')
     builds, need = g.builds(), g.words('shader_versions')
-    pkg_ver = args.package or PACKAGE or g.get('package')
-    if pkg_ver not in builds: raise BuildError(f"the version to pack (-p / PACKAGE) must be one the game profile registers: {', '.join(builds)}")
-    versions = need + ([pkg_ver] if pkg_ver not in need else [])
+    have, derived = nsp_versions(fam, builds), False
+    if provisional:   # the version the survey saw
+        pkg_ver = args.package or PACKAGE or g.get('package')
+        if pkg_ver not in builds: raise BuildError(f"the version to pack (-p / PACKAGE) must be one the game profile registers: {', '.join(builds)}")
+    else:   # the newest version in the folder, or the one asked for. The profile is used as it is for a version it registers when every version its shader tables were made from is there;
+        # any other version (no update, another update) is packed from a profile derived from it (derive_profile), with its own shaders
+        pkg_ver = args.package or PACKAGE or max(have, key=vnum)
+        if pkg_ver not in have: raise BuildError(f'the version to pack (-p / PACKAGE) is not in the folder, which holds {", ".join(sorted(have, key=vnum))}')
+        if pkg_ver not in builds: derived = f'{pkg_ver} is not a version game profile {g.id} registers ({", ".join(f"{v} {b["display"]}" for v, b in builds.items())})'
+        elif not all(v in have for v in need): derived = f'the folder has no {", ".join(v for v in need if v not in have)}, whose files game profile {g.id}\'s shader tables were made from'
+        if derived: say(f'{derived}: packing {pkg_ver} from a profile derived from it')
+    versions = [pkg_ver] if derived else need + ([pkg_ver] if pkg_ver not in need else [])
     out_ipa = Path(os.path.expanduser(args.out or OUT_IPA)).resolve() if (args.out or OUT_IPA) else nsp_dir / g.get('ipa')   # by default in the NSP folder, next to the NSPs and <id>_build/
     if shadowed and not (args.out or OUT_IPA): out_ipa = out_ipa.with_name(out_ipa.stem + '-provisional.ipa')   # never over the IPA of the game's real profile
     say(f'output IPA: {out_ipa}')
@@ -1292,7 +1340,7 @@ def main(args=None):
     env.update(DM_GAME=g.id, DM_ROOT=str(work), WORK=str(work / 'tmp'))
     logs = work / 'logs'
     check_prereqs(env, xlate)
-    picks = pick_nsps(fam, versions)
+    picks = pick_nsps(fam, have, versions)
 
     ex = work / 'extract'; ex.mkdir(parents=True, exist_ok=True); (work / 'tmp').mkdir(exist_ok=True)
     gb = sum({p.stat().st_size for b, u in picks.values() for p in (b, u) if p}) / 2**30 + 6   # extraction + shader cache + slack
@@ -1307,6 +1355,21 @@ def main(args=None):
         b, u = picks[ver]
         dirs[ver] = extract(nx, keys, ex, ver, b, u, clone, logs, g)
         if u is None and clone is None and can_clone(ex): clone = dirs[ver] / 'RomFS'
+    bad = [] if derived else [f'{v}: {x}' for v in versions for x in build_mismatch(dirs[v], v, g)]   # every module's build ID must be the one the profile registers for its version
+    if bad and provisional: raise BuildError(f'not the builds provisional game profile {g.id} registers: {"; ".join(bad)}')
+    if bad:   # files of other builds under a registered version's tag: packed like any other version
+        derived = f'not the builds game profile {g.id} registers: {"; ".join(bad)}'
+        say(f'{derived}: packing {pkg_ver} from a profile derived from it')
+        versions, dirs = [pkg_ver], {pkg_ver: dirs[pkg_ver]}
+    reg = g   # the profile as registered (a derived build reports what it lacks against it)
+    if derived:   # the derived profile goes where a provisional one would, and every tool (game.py, make, build_ipa.sh) takes it first (DM_GAMES_FIRST)
+        pdir = Path(os.path.expanduser(args.profile_out or PROFILE_OUT)).resolve() if (args.profile_out or PROFILE_OUT) else nsp_dir / f'{app:016X}_build' / 'profile'
+        disp = derive_profile(g, pdir / g.id, pkg_ver, dirs[pkg_ver], g.words('modules'))
+        os.environ['DM_GAMES_DIR'] = env['DM_GAMES_DIR'] = os.pathsep.join([str(pdir)] + [d for d in os.environ.get('DM_GAMES_DIR', '').split(os.pathsep) if d and d != str(pdir)])
+        os.environ['DM_GAMES_FIRST'] = env['DM_GAMES_FIRST'] = '1'
+        g = gamemod.load(g.id)
+        say(f'derived game profile for {pkg_ver} ({disp}): {g.dir}')
+    sv = versions if derived else need   # the versions whose files the shaders come from
     game = dirs[pkg_ver]
     # how the shaders are got follows from the packed version's files (profile_guess.py shader_sources): the graphics API, and the shaders made only at run time
     src = pg.build_sources(game / 'ExeFS', game / 'RomFS', g.words('modules'))
@@ -1335,22 +1398,23 @@ def main(args=None):
 
     patched = work / f'patched_{pkg_ver}'
     rewrite(py, repo, game / 'ExeFS', patched, env, logs, g)
-    if provisional:   # the keys that need the rewritten modules, then the heap check (both only change keys the host is built with, not the rewrite or the shader steps)
+    if provisional or derived:   # the keys that need the rewritten modules, then (provisional) the heap check (both only change keys the host is built with, not the rewrite or the shader steps)
         provisional_prep(py, repo, env, logs, g)
         g = refine_after_rewrite(g, game, patched)
-        if heapck and pg.heap_check_needed(game / 'ExeFS'):
+        if provisional and heapck and pg.heap_check_needed(game / 'ExeFS'):
             PROG.add(1); g = heap_check(repo, game, patched, work, env, logs, g)
-    if glslc: capture_glslc(repo, {v: dirs[v] for v in need}, pkg_ver, patched, work, env, logs, g)
-    if uedec: decode_ue_shaders(repo, {v: dirs[v] for v in need}, pkg_ver, patched, work, env, logs, g)
+    if glslc: capture_glslc(repo, {v: dirs[v] for v in sv}, pkg_ver, patched, work, env, logs, g)
+    if uedec: decode_ue_shaders(repo, {v: dirs[v] for v in sv}, pkg_ver, patched, work, env, logs, g)
     sh = work / 'shader'
     if gfx == 'vulkan':   # the packed version's merged RomFS holds the SPIR-V files the game loads; a capture holds those it generates
         cap = capture_vk(repo, game, patched, work, env, logs, g) if vkcap else None
-        ios = build_vk_shaders(py, repo, [game / 'RomFS'] + ([cap] if cap else []), sh, env, logs, g, reuse=not (provisional or ALLOW_DAMAGED))
+        ios = build_vk_shaders(py, repo, [game / 'RomFS'] + ([cap] if cap else []), sh, env, logs, g, reuse=not (provisional or derived or ALLOW_DAMAGED))
     else:
         # Trinity packs and legacy Unreal paks: the split decodes them with the packed version's own decoder (Oodle, LZ5), in the Mac host built for the profile
         oodle = (lambda: {'DM_OODLE_HOST': str(build_mac_host(repo, work / 'tools/dmhost', env, logs, g)), 'DM_OODLE_MODULES': str(patched)}) if src['oodle_packs'][0] or src['ue_legacy'][0] else None
-        pkey = split_shaders(py, repo, [dirs[v] / 'RomFS' for v in need], [dirs[v] / 'ExeFS/main' for v in need], sh / 'pkg', env, logs, g, provisional, oodle)
-        ios = build_shaders(py, repo, sh, xlate, env, logs, g, provisional, pkey)
+        own = bool(provisional or derived)   # the shader tables come from this build's split (the profile's are checked otherwise)
+        pkey = split_shaders(py, repo, [dirs[v] / 'RomFS' for v in sv], [dirs[v] / 'ExeFS/main' for v in sv], sh / 'pkg', env, logs, g, own, oodle)
+        ios = build_shaders(py, repo, sh, xlate, env, logs, g, own, pkey)
 
     if free_gb(out_ipa.parent) < 5: raise BuildError(f'less than 5 GB free on the volume of {out_ipa.parent}')
     say(f'building the IPA → {out_ipa}')
@@ -1374,6 +1438,12 @@ def main(args=None):
     if not keep:
         say(f'deleting the extracted game files: {ex}'); rmtree(ex)
     say(f'done: {out_ipa} ({out_ipa.stat().st_size / 2**30:.1f} GB)')
+    if derived:   # the modules whose build no registered version has: the rewriter's cuts and the host's fixes made for a registered build's code do not reach them
+        known = {(m, b) for row in reg.builds().values() for m, b in row.items() if m != 'display'}
+        other = [m for m, b in g.builds()[pkg_ver].items() if m != 'display' and (m, b) not in known]
+        say(f'[RED] this IPA packs {pkg_ver} ({disp}), which game profile {reg.id} was not brought up on ({", ".join(f"{v} {b["display"]}" for v, b in reg.builds().items())}): '
+            'its settings, with this version\'s own shaders' + (f'; {", ".join(other)} {"is a build" if len(other) == 1 else "are builds"} the profile does not register, so the fixes made for '
+            'the registered builds\' code (patch_nso.py, the host) do not apply there and the game may not run as well' if other else '; every module is a registered build'))
     if provisional:
         say(f'[RED] this IPA was built from a provisional game profile and the game may not boot: {g.dir}')
         say(f'  bring-up on the Mac: DM_GAMES_DIR="{g.dir.parent}" make -C dm/host GAME={g.id} dmhost, see docs/agents')
