@@ -77,6 +77,32 @@ The game language (`--language`, `LANGUAGE`; English by default) is what `nn::oe
 
 On the device, environment switches go in `Documents/env.txt` (one `KEY=VALUE` per line), and game files are also accepted at `Documents/romfs`.
 
+## Build and run on a device with Xcode
+
+With an Apple developer account, Xcode can sign and install the app itself:
+
+```
+python3 scripts/build_ipa_from_nsp.py "<NSP folder>" -k "<prod.keys>" --prepare-xcode
+open "<NSP parent folder>/NxNative.xcworkspace"
+```
+
+`--prepare-xcode` (`PREPARE_XCODE = True` in Spyder) runs the same extraction, rewrite and shader preparation, reusing unchanged outputs, then stops after generating the project. It does not build an IPA, sign, or install. It needs the extracted files, so it cannot be combined with `--no-keep-extracted`.
+
+1. In **Xcode > Settings > Apple Accounts**, add your Apple developer account.
+2. Open the **DmIOS** target's **Signing & Capabilities**, enable **Automatically manage signing**, and select your team, replacing the generated placeholder. If Xcode reports that the bundle identifier is unavailable, choose an identifier you own (or pass `--bundle-id` when preparing).
+3. Connect and trust your iPhone or iPad, enable **Developer Mode** on the device, and select it as the run destination. The iOS Simulator cannot run the game's code.
+4. Select the game's scheme, named **Game name (title ID)**, and press **Run**. Its Run configuration is **Release**. Xcode manages provisioning, signs the app and installs it on your device.
+
+Each game has its own generated project at `<NSP folder>/<title ID>_build/xcode/DmIOS.xcodeproj`. Its **Copy game resources** target phase (`dm/ios/tools/stage_resources.sh`) runs before code signing: it syncs the RomFS, the iOS shader libraries and the add-on content named in the project's `Gen/resources.env` to `DmIOS.app/romfs`, `DmIOS.app/msl/<b-chain, vk or gl>` and `DmIOS.app/aoc`. The rewritten game code is embedded by `Gen/embed.S` at link time. No keys are copied to the device. The project links `Sources`, `tools` and the host sources to the checkout it was prepared from (relinked on each preparation), so code edits apply to every prepared game. The prepared shaders do not follow a chain change: when the profile's `dmsh_chain.h` names another chain than the prepared shader folder (after a pull, or `dmsh_chain.py --header`), the phase stops and asks to prepare the game again.
+
+The project asks for the Increased Memory Limit capability (`Gen/DmIOS.entitlements`; without it iOS closes the bigger games, see the README). `DM_ENTITLEMENTS=<plist>` when preparing uses another entitlements file, and an empty `DM_ENTITLEMENTS=` none, for an account that cannot provision it.
+
+The first Xcode build copies the complete game, so allow free space on the game's drive for another uncompressed copy; later builds sync changes. Derived data and build products go under `<NSP folder>/<title ID>_build/xcode-derived-data/`; keep that drive connected while building. The installed app holds its files and runs without the Mac.
+
+Each prepared game is a scheme in the shared workspace (by default `NxNative.xcworkspace` beside the NSP folder; `--xcode-workspace`, `XCODE_WORKSPACE` in Spyder, collects games from different folders in one). Give each game its own bundle ID (`--bundle-id`) to keep them installed together; keep it when updating an installed game, as another ID is a separate app with separate saves. The script rejects a bundle ID that another project in the workspace uses. Preparing a game again regenerates only its project and keeps its Release bundle ID and team, including changes made in Xcode; `--bundle-id` / `--team-id` (`BUNDLE_ID` / `TEAM_ID` in Spyder, or `DM_TEAM_ID`) override them. Other manual project edits are replaced; edit `dm/ios/project.yml` for shared changes. Prepare a game again after changing its game files, profile, shaders or the project template; switching games needs only the scheme menu.
+
+The unsigned IPA build still uses the repository's `dm/ios/DmIOS.xcodeproj`, skips the resource phase (`DM_COPY_GAME_RESOURCES=NO`) and packs the resources straight from the drive as before.
+
 ## Port another game
 
 Each game has a profile in `dm/games/<id>/`:
@@ -124,13 +150,13 @@ GAME=$G W=$W dm/ios/tools/build_ipa.sh [out.ipa]
 
 Notes on these steps:
 - `dmsh_build.py` compiles each shader's Metal source through a cache keyed by that source, the compile flags and the compiler (`dm/gfx/tools/dmsh_mtlcache.py`, in `<cache>/cas/metallib/`). A chain change that leaves a shader's MSL unchanged, such as a translator fix, costs that shader no Metal compile. Before building, the cache takes the libraries of the earlier `b-*/` folders beside its output (and beside `IOSOUT`), and of `DMSH_PREFILL=<Mac root>[=<iOS root>]` (several separated by `:`). It takes a folder only when its recorded flags are the current ones and a fresh compile of a few of its shaders reproduces their libraries byte for byte. The summary line `Metal cache:` shows reused, compiled and filled counts per target.
-- `build_ipa.sh` takes the rewritten modules from `$W/build/patched_<package>` and the RomFS from `$W/data/<package>/RomFS`; `PATCHED` and `ROMFS` override them. The shader libraries, the RomFS and the add-on content never go through Xcode: `pack_ipa.py` packs them into the IPA beside the app Xcode built, as `DmIOS.app/msl/b-<chain version>`, `romfs` and `aoc`.
+- `build_ipa.sh` takes the rewritten modules from `$W/build/patched_<package>` and the RomFS from `$W/data/<package>/RomFS`; `PATCHED` and `ROMFS` override them. In unsigned IPA mode, `pack_ipa.py` packs the shader libraries, RomFS and add-on content beside the app Xcode built, as `DmIOS.app/msl/b-<chain version>`, `romfs` and `aoc`. Prepared Xcode projects instead sync these resources into the app before signing.
 - It also bundles a standard font (macOS's Arial Unicode, `STD_FONT=` overrides it) and the generated `nintendo_ext.ttf`.
 - The icon is the `icon.jpg` that `nx_extract` saves next to `RomFS/`; `DM_ICON=` points at another image.
 - `DM_ENV_FILE=` bakes environment switches into the app, and `DM_DISPLAY_NAME=` renames it.
 - `DM_LANG=<code>` is the game language (`DMLanguage` in `Info.plist`, default `en-US`; `main.m` sets `DM_LANG` from it unless `Documents/env.txt` or the baked env file sets it).
 - `DM_SHOW_FPS=1` turns the frame-rate counter on (`DMShowFPS` in `Info.plist`, which `front_ios.m` reads; `DM_SHOW_FPS` in `Documents/env.txt` overrides it). It counts the frames put on screen each second (`mtl_present_count`), so frames the display link merges away are not counted.
-- If Xcode's Locations setting puts products in a custom place, the script finds the app through the build log.
+- The unsigned build pins its build product and intermediate directories inside `$W/build/ios/pkg/dd`, independently of Xcode's Locations preference.
 - hactool cannot read every update (Mario 1.2.1's patch NCA gives "Invalid BKTR layout!"), which is why `nx_extract` uses LibHac.
 
 ## Prewarm lists
