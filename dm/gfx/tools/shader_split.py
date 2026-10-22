@@ -671,8 +671,27 @@ def unity_code_blobs(o):
     if not any('m_ParameterBlobIndices' in p for p in progs): return None
     return {sp['m_BlobIndex'] for p in progs for tier in p.get('m_PlayerSubPrograms', []) for sp in tier}
 
+def unity_compute(x, base, trees):
+    """ComputeShader objects (class 72) of a serialized file → [(where, 'cs', control, code)]: each kernel variant's code is a program code with one stage, compute (Monster Train 2,
+    Unity 2022.3: the post-processing stack's 12 compute shaders, its colour grading LUT baker among them, in Data/sharedassets2.assets). Raises NoTree in the first pass, so the file is scanned
+    again with the borrowed trees and unityfs.py's layouts; in the second pass a class still without a tree is reported and its kernels left out, as before compute shaders were read"""
+    import unityfs
+    out = []
+    try:
+        for cid, pid, o in unityfs.serialized_objects(x, COMMON, {unityfs.CLASS_COMPUTE_SHADER}, trees):
+            for v in o['variants']:
+                for k in v['kernels']:
+                    for i, u in enumerate(k['uniqueVariants']):
+                        where = f'{base}#{o["m_Name"]}#{k["name"]}.{i}'
+                        out.extend((where, st, ctl, cd) for st, ctl, cd in unity_program(u['code'], where, 'cs'))
+    except unityfs.NoTree as e:
+        if not TREES: raise
+        print(f'[RED] {base}: ComputeShader objects that no bundle lends a type tree to and unityfs.py has no layout for, their kernels are left out ({e})', flush=True)
+        return []
+    return out
+
 def unity_shaders(d, label, out, trees):
-    """Shaders in a UnityFS bundle or serialized file → out; raises NoTree when no type tree is available"""
+    """Shaders and compute shaders in a UnityFS bundle or serialized file → out; raises NoTree when no type tree is available"""
     import unityfs
     if COMMON is None: red(f'{label}: a Unity asset, but main has no Unity common string table')
     sers = unityfs.bundle_files(d) if d[:8] == b'UnityFS\0' else [('', d)]
@@ -685,6 +704,7 @@ def unity_shaders(d, label, out, trees):
                 where = f'{label}{":" + node if node else ""}#{name}#var{plat}.{k}'
                 code = unityfs.subprogram(sp)[4]
                 out.extend((where, st, ctl, cd) for st, ctl, cd in unity_program(code, where, stages.get(k)))
+        out.extend(unity_compute(x, f'{label}{":" + node if node else ""}', trees))
 
 def scan_blob(d, label, out):
     if d[:4] == b'Yaz0': d = yaz0(d)

@@ -417,6 +417,15 @@ void thr_counts(int *handles, int *live, int *objs) {
     pthread_mutex_unlock(&G);
     *handles = nh; *live = nl; *objs = no;
 }
+// The game's threads that hold a slot of the process's thread resource limit, as Horizon counts them: created (started or not) and not yet exited (GetInfo FreeThreadCount, hle_svc.c).
+// Guest threads the host spawns for itself are not the game's
+int thr_limit_used(void) {
+    int n = 0;
+    pthread_mutex_lock(&G);
+    for (thr_t *t = g_all; t; t = t->all) n += !t->exited && !t->host_owned;
+    pthread_mutex_unlock(&G);
+    return n;
+}
 // Get the guest thread name by pthread (used by per-thread CPU sampling DM_THRCPU, memstat.m): returns 0 if not a guest thread
 int thr_name_of(pthread_t pt, char *out, size_t n) {
     int ok = 0; char nb[64];
