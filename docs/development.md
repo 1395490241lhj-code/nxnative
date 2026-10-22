@@ -423,6 +423,14 @@ The game's own work and its frame rate stay as they are; the host avoids work of
 - **Input:** controller only (stick or D-pad to move, A redo, B undo, X reset, + menu): it stays docked at 1920x1080 with the 2D pad layout.
 - **Mac input:** a fresh save solves Intro 1 with `DM_KEYS="f700:A,f1000:A,f1300:A,f1600:A,f2400:Right,f2450:Down,f2500:Down,f2550:Down,f2600:Down,f3000:Up*3/30,f3090:Right*3/30,f3180:Down*2/30,f3240:Up*3/30,f3330:Left*4/30"` (English, the title, into Intro 1 from the hub at about frame 2,700, solved and on to Intro 2 at about frame 3,500).
 
+**Celeste (`01002B30028F6000`)**
+- **Status:** brought up on the Mac with no host change: the logos, the title, a new file and the prologue (walking, jumping, the camera following Madeline), at 60 fps with music and sound, no red line; about 1.6–1.7 GB resident, flat over five minutes. Not yet tested on an iPhone.
+- **Engine:** MonoGame for the Switch: MonoGame's and the game's C# compiled to C++ by Sickhead's BRUTE into `main` (78 MB with its bss), FMOD Studio (its banks in `Content/FMOD/Desktop`, sound through AudioOut), SDK 15.3.2, NVN, update 1.4.1.1 (v589824; the title shows v.1.4.1.0). Only `main` and `sdk`.
+- **Shaders:** 26 (20 pixel, 6 vertex) in MonoGame effects: the 13 XNB files in `Content/Effects` and SpriteBatch's built-in effect in `main`, which `shader_split.py` now reads (`mgfx_effect`, [04](agents/04-graphics.md)). Every binding decodes.
+- **Memory:** no system resource (`sys_resource 0`), so no virtual address memory: the game sets a 3.11 GB heap (pool − used memory) in the 4 GB layout. The rewritten modules need 100 MB of used memory (`mem_used`).
+- **Input:** controller only; the game maps its buttons by position, so B and X jump. The virtual gamepad starts in the 2D layout.
+- **Mac input:** a fresh save reaches the prologue with `DM_KEYS="f1850:A,f2200:A,f2600:A,f3000:A"` (the title, Climb, a new file, Begin; control of Madeline from about frame 5,000); then `f5100:LRight~1.0,f5400:LRight+X~0.3` walks to the first ledge and jumps onto it.
+
 ## Tools (`dm/tools`)
 
 | Tool | What it does |
