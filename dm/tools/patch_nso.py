@@ -5,6 +5,7 @@
 #   mrs tpidr_el0       → read thread slot KTLS; msr tpidr_el0 → write KTLS
 #   mrs tpidrro_el0     → read thread slot KTLR (Horizon ThreadLocalRegion pointer)
 #   svc #n, mrs cntpct_el0 → host gate (gate address taken from thread slot KGATE; once in C, gates.tsv is looked up by return point)
+#   sub sp, sp, xN      → xN rounded up to 16 first (Apple's kernel faults on a misaligned sp, Horizon does not; site_sp_align)
 #   Registered cuts (CUTS, restricted by NSO build ID): before rewriting, the original bytes are asserted one by one and any mismatch aborts; results are listed in <name>.cuts.tsv
 #   Registered observation gates (OBS, restricted by build ID): one instruction at the entry is replaced with "enter the host observation callback → execute the original instruction → jump back", so diagnostics modify zero code at runtime; listed in <name>.obs.tsv
 # The key page only stores "actual key number × 8" at the end of the data segment, and patch code fetches thread slots indirectly through the key page: the loader may use any key number.
@@ -155,6 +156,25 @@ CUTS = {
   # its largest block is nninitStartup's own probe of pool − used (3.15 GB, allocated and freed at once), so 4 GB of address space holds it
   'b1f12fd919eae86ab8a978317677e64b': [
     (0x1b3e3e4, '6200c0d2', '2200c0d2', 'StandardAllocator::Initialize(nullptr, size): address space mov x2,#0x300000000 → mov x2,#0x100000000 (12 GB → 4 GB)'),
+  ],
+  # SDK 15.3.2 sdk 8618895246b4 (Paper Mario: The Thousand-Year Door 1.0.1, Celeste 1.4.1.1; Celeste has no virtual address memory and never makes an address region): Absolum's cuts on this
+  # build. The AddressRegionManager constructor is at sdk+0x12e0e0 (node area limit at +0x12e0f0, registered as occupied at +0x12e184) and VammManager::AllocateAddressRegion at sdk+0x12e1d0
+  # aligns regions of 1 GB and more to 1 GB (+0x12e2e0). Measured with a 64 GB alias region: Paper Mario's malloc region was placed at the next 1 GB boundary after the 1 GB node area, 0.69 GB further
+  '8618895246b420329b77746b960a66ab': [
+    (0x12e0f0, '08fca752', '087ca052', 'AddressRegionManager constructor: node area limit mov w8,#0x3fe00000 → mov w8,#0x3e00000'),
+    (0x12e184, '09fca752', '097ca052', 'AddressRegionManager constructor: length of the node area registered as an occupied region mov w9,#0x3fe00000 → mov w9,#0x3e00000'),
+    (0x12e2e0, '0a00a852', '0a40a052', 'AllocateAddressRegion: alignment of regions of 1 GB and more mov w10,#0x40000000 → mov w10,#0x2000000 (32 MB, as from 32 MB up)'),
+  ],
+  # Paper Mario: The Thousand-Year Door 1.0.1 (v65536) main: nninitStartup (main+0x3136b8, the game's malloc) initializes its StandardAllocator with virtual address memory over 62 GB of
+  # address space (StandardAllocator::Initialize(nullptr, 0xf80000000, false), main+0x3136e8), which the Switch's 64 GB alias region holds and an iPhone's single 6 GB reservation cannot;
+  # it then cuts its 256 MB, 16 MB and 1 MB allocators out of it. The pool (3.2 GB) bounds what it maps, so 4 GB of address space, as Pokémon Legends: Z-A's, holds it
+  '0effe4af1dec3a7966b934d4a7c3d2bf': [
+    (0x3136e8, 'e21361b2', '2200c0d2', 'StandardAllocator::Initialize(nullptr, size): address space mov x2,#0xf80000000 → mov x2,#0x100000000 (62 GB → 4 GB)'),
+    # 60 fps (30 on the Switch). Every frame main+0x2e7750 measures the time since the last one (oe::GetProgramTotalActiveTime), rounds it to 60 Hz vsyncs and clamps it to [2, cap]
+    # (a step above cap + 10 counts as 2); the base clock (time object +0x20, main+0x2e753c) then advances by that step, the field and battle clocks by it times their scale, and game
+    # seconds by step / 60. Timers, fades, animation and the scripts' frame counts follow the clocks. With the floor at 2 a frame shown every vsync still stepped two vsyncs, and
+    # the game ran at double speed; with 1 the step is what really passed: 1 at 60 fps, 2 when a frame takes two vsyncs (and at the game's own 30 fps, as before)
+    (0x2e77a4, '49008052', '29008052', 'frame step floor in 60 Hz vsyncs: mov w9,#2 → mov w9,#1 (the game steps by the vsyncs that passed, down to one)'),
   ],
   # The Legend of Zelda: Link's Awakening 1.1.0 (v131072) main: the physics step (main+0x15730, main thread) rebuilds each world's PhysX completion task in place
   # (a PxLightCpuTask at world+0xc8) and passes it to simulate. A worker runs it (main+0x10ccf80: fetchResults, world+0x1d8 done = 1, notify, unlock) and then calls its
@@ -370,6 +390,16 @@ def site_sp(ins):
     emit(ADDI(T, 31, 0))             # mov T, sp (in add immediate, 31 is sp)
     emit(subst(ins, S))
     emit(LDP(S, T, T, -16)); emit(B(here(), ins.address + 4))
+    return start
+
+def site_sp_align(ins, n):
+    """sub sp, sp, xN (no shift): Horizon leaves stack alignment checking off for user code, Apple's kernel does not, so an sp that is not 16-byte aligned faults (SIGBUS) at the next sp-based access.
+    Paper Mario: The Thousand-Year Door's script call bridges (main+0x17c140 and five more beside it, hand-written) reserve the callee's stack arguments as their sizes add up (4 for one int)
+    and give the area back with add sp, sp, xN: the callee's first stp faulted. xN is rounded up to 16 first, which the add then gives back too. Compiled code keeps such sizes 16-aligned, so
+    there it changes nothing; of the 22 games' modules on hand only Paper Mario's main has the form"""
+    start = here()
+    emit(ADDI(n, n, 15)); emit(0x927CEC00 | n << 5 | n)   # add xN, xN, #15; and xN, xN, #~15
+    emit(struct.unpack('<I', ins.bytes)[0]); emit(B(here(), ins.address + 4))
     return start
 
 def site_cond(ins):
@@ -647,6 +677,8 @@ for o in (o for s, e in zip([0] + [e for _, e in DATA_BLOCKS], [s for s, _ in DA
     if w & 0xFFFFFFE0 == 0xD53BE040: kinds[o] = ('cntvct', w & 31); continue
     # mrs xN, ctr_el0 (cache type): the Apple kernel does not expose it to user mode (SIGILL); SDK 16's nn::os::FlushDataCache reads it for the cache line size
     if w & 0xFFFFFFE0 == 0xD53B0020: kinds[o] = ('ctr', w & 31); continue
+    # sub sp, sp, xN (extended register, LSL #0): sp may end up misaligned, which Horizon allows and Apple's kernel does not (site_sp_align); with x18 it is an x18 site (site_sp)
+    if w & 0xFFE0FFFF == 0xCB2063FF and (w >> 16) & 31 != 18: kinds[o] = ('sp_align', (w >> 16) & 31); continue
     for ins in md.disasm(IMG[o:o + 4], o):
         if has18(ins): kinds[o] = ('x18', None)
 
@@ -875,6 +907,7 @@ for a in sorted(kinds):
     elif k == 'tpidr_w': st = site_tpidr_write(ins); stat(k)
     elif k == 'svc': st = site_gate(ins, 'svc', arg); stat(k)
     elif k in ('cntpct', 'cntvct'): st = site_gate(ins, k, arg); stat(k)
+    elif k == 'sp_align': st = site_sp_align(ins, arg); stat(k)
     elif k == 'ctr':   # replaced in place by a constant: DminLine = 4 (64-byte lines); movz xN, #4, lsl #16
         assert arg != 18, f'{a:x} mrs x18, ctr_el0'
         struct.pack_into('<I', IMG, a, 0xD2A00080 | arg); stat(k); continue
@@ -891,7 +924,7 @@ for off, oid, ow, why in obs:
     assert off < TEXT_END and off not in kinds and not any(lo <= off < hi for wseg in windows for lo, hi in [(wseg[0].address, wseg[-1].address + 4)]), f'observation gate conflicts with a rewrite site {off:#x}'
     put_branch(off, site_obs(off, oid, w)); stat('obs')
 
-# ---- Frame step in whole vsyncs (The Legend of Zelda: Tears of the Kingdom 1.4.3, Breath of the Wild 1.9.0 and Hyrule Warriors: Age of Calamity 1.3.0 main, host only) ----
+# ---- Frame step in whole vsyncs (The Legend of Zelda: Tears of the Kingdom 1.4.3, Breath of the Wild 1.9.0, Hyrule Warriors: Age of Calamity 1.3.0 and Paper Mario: The Thousand-Year Door 1.0.1 main, host only) ----
 # The games step their game time by a whole number of vsyncs (1/60 s) per frame that their own interval logic picks. With the stubs the host picks it (hle_nvn.c fstep_tick,
 # nvn_fstep.h): the step is the number of vsyncs the host keeps the frame on screen (1 = 60 fps, 2 = 30 when 60 does not hold), plus one while the game is behind real time after
 # a late frame, so motion is even and game time = real time. The steps stay values the games' own logic uses (1 to 3). Age of Calamity's updates are not held by the presents:
@@ -900,7 +933,7 @@ for off, oid, ow, why in obs:
 # runs the original instructions), +4 TOTK movie flag, +8 double lead (TOTK, below), +0x10 float render scale (TOTK, below), +0x18 double game seconds (TOTK, below),
 # +0x20 u32 step in vsyncs (host; 0 = not decided yet), +0x24 u32 a step the game fixes itself (BotW's VFR override; 0 = none), +0x28 u32 AoC's vsyncs per update, marked by
 # its first stub (0 = off), +0x30 u64 vsyncs stepped (the stubs; logged by the host to check the game's speed). Stub bodies assembled with clang
-FRAME_STEP = {'277178b7dba1b6d4949a84778d4abc58', 'cd57b23fa4bbad65803d9788c01821ee', 'c3cf52bf2b05d7310884971b50bcccb8'}
+FRAME_STEP = {'277178b7dba1b6d4949a84778d4abc58', 'cd57b23fa4bbad65803d9788c01821ee', 'c3cf52bf2b05d7310884971b50bcccb8', '0effe4af1dec3a7966b934d4a7c3d2bf'}
 FS_STATE_OFF = 0
 if BUILD_ID in FRAME_STEP and NAME == 'main':
     FS_STATE_OFF = KEY_PAGE_OFF + 0x4000
@@ -1204,6 +1237,25 @@ if FS_STATE_OFF and BUILD_ID == 'c3cf52bf2b05d7310884971b50bcccb8':
         emit(w)
     emit(B(here(), 0x166dc6c))
     fs_put(0x166dc60, [B(0x166dc60, start)], 'KIDS frame task: the frame-rate object\'s steps × its fps × vsyncs per update / 60 (state page target fps; 0 = as the game sets them)')
+# Paper Mario: The Thousand-Year Door 1.0.1: every frame main+0x2e7750 measures the time since the last one, rounds it to 60 Hz vsyncs, clamps it (at least 2 on the Switch, 1 with
+# the cut above) and stores it as the base clock's step (time object +0x44, main+0x2e77f8), which the clocks below it follow (main+0x2e753c). Rounding a frame time between one and
+# two vsyncs down to 1 ran the game slow whenever 60 did not hold (a run at 44 fps took 10-20% longer for each fade). The stub stores the host's step instead, the vsyncs the frame
+# stays on screen, so game time = real time at any rate, and counts the vsyncs stepped. Before the host has decided a step, and at target 0, the game's own. x16 and x17 are dead
+# at the site (the bl to the clock update follows)
+if FS_STATE_OFF and BUILD_ID == '0effe4af1dec3a7966b934d4a7c3d2bf':
+    fs_site(0x2e77f8, '604600bd')
+    start = here(); emit(ADRP(16, here(), FS_STATE_OFF))
+    for w in (0xb9400211,   # ldr w17,[x16]          target fps (float bits; 0 = off)
+              0x34000111,   # cbz w17,orig (+8)
+              0xb9402211,   # ldr w17,[x16,#0x20]    step in vsyncs
+              0x340000d1,   # cbz w17,orig (+6)      not decided yet
+              0x1e230220,   # ucvtf s0,w17           the base clock's step
+              0xf9401a10):  # ldr x16,[x16,#0x30]
+        emit(w)
+    emit(0x8b110210)                                                 # add x16,x16,x17
+    emit(ADRP(17, here(), FS_STATE_OFF)); emit(0xf9001a30)           # str x16,[x17,#0x30]    vsyncs stepped
+    emit(0xbd004660); emit(B(here(), 0x2e77fc))                      # orig: str s0,[x19,#0x44]; back
+    fs_put(0x2e77f8, [B(0x2e77f8, start)], 'frame step: the base clock steps by the host\'s vsyncs (state page target fps; 0 = the game\'s measured step)')
 
 os.makedirs(outdir, exist_ok=True)
 P = lambda ext: os.path.join(outdir, f'{NAME}.{ext}')
