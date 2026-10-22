@@ -543,6 +543,62 @@ def vs_layer(src):
     src = src[:i] + re.sub(r'\n    float gl_PointSize \[\[point_size\]\];', '', src[i:j], count=1) + src[j:]
     return re.sub(r'\n    out\.gl_PointSize = [^;\n]*;', '', src)
 
+def gs_slice(spv):
+    """A geometry shader that only picks the layer: triangles in, at most 3 vertices out, each vertex copying its input position and the input components it passes on, and gl_Layer taking the
+    bits of one input component (Unreal Engine 4.18's FWriteToSliceGS, which writes one slice of a volume texture per instance: DRAGON QUEST XI S 0e7f58cd1f602f6d builds the 32x32x32 colour
+    grading LUT the tone mapper reads, and without it the screen came out a flat blue). Metal has no geometry stage, so the host drops such a shader and draws with the vertex shader's
+    layer entry points instead (vs_layer_entry), which write that component as the layer. Read from the SPIR-V as GLSL (SPIRV-Cross writes no MSL for a geometry stage).
+    → {'loc': input location, 'comp': component} or None (any other geometry shader: one-pass cube shadows emit six transformed triangles)"""
+    r = subprocess.run(['spirv-cross', spv, '--version', '450'], capture_output=True, text=True)
+    g = r.stdout
+    if r.returncode or 'layout(triangles) in;' not in g or 'layout(max_vertices = 3, triangle_strip) out;' not in g or g.count('EmitVertex();') != 3 or 'EndPrimitive' in g: return None
+    ins = {m.group(2): int(m.group(1)) for m in re.finditer(r'layout\(location = (\d+)\) in vec4 (\w+)\[3\];', g)}
+    outs = {m.group(2): int(m.group(1)) for m in re.finditer(r'layout\(location = (\d+)\) out vec4 (\w+);', g)}
+    body = g[g.find('void main()'):]
+    var, layer = {}, set()
+    for st in (s.strip() for s in re.split(r'[;{}]', body[body.find('{') + 1:])):
+        if not st or st == 'if (false)' or re.fullmatch(r'int \w+ = -?\d+|\w+ = int\(0x80000000\)|int \w+ = \w+|EmitVertex\(\)', st): continue
+        m = re.fullmatch(r'float (\w+) = (\w+)\[\w+\]\.([xyzw])', st)
+        if m and m.group(2) in ins: var[m.group(1)] = (ins[m.group(2)], m.group(3)); continue
+        m = re.fullmatch(r'float (\w+) = gl_in\[\w+\]\.gl_Position\.([xyzw])', st)
+        if m: var[m.group(1)] = ('pos', m.group(2)); continue
+        m = re.fullmatch(r'gl_Position\.([xyzw]) = (\w+)', st)
+        if m and var.get(m.group(2)) == ('pos', m.group(1)): continue
+        m = re.fullmatch(r'(\w+)\.([xyzw]) = (\w+)', st)
+        if m and m.group(1) in outs and var.get(m.group(3)) == (outs[m.group(1)], m.group(2)): continue
+        m = re.fullmatch(r'gl_Layer = floatBitsToInt\((\w+)\)', st)
+        if m and m.group(1) in var and var[m.group(1)][0] != 'pos': layer.add(var[m.group(1)]); continue
+        return None   # anything else: not a plain slice writer
+    if len(layer) != 1 or g.count('gl_Layer =') != 3: return None
+    (loc, comp), = layer
+    return {'loc': loc, 'comp': comp}
+
+def vs_layer_entry(full):
+    """Layer entry points for a vertex shader that writes integer bits taken from the instance index into an output component (Unreal Engine 4.18's WriteToSliceMainVS: the slice = instance −
+    base instance + its first slice, DRAGON QUEST XI S 7ceb7898171a9ae9). main0_l and main0_lz are main0 and main0_z writing that component as the layer (render_target_array_index), without
+    the point size (see vs_layer); the host draws with them when the program's geometry shader is a slice writer reading that component (gs_slice). → (source with the two entry points added,
+    {'loc', 'comp'}), or (source, None) when no output qualifies"""
+    i = full.find('struct main0_out\n{\n'); j = full.find('\n};', i)
+    if i < 0 or j < 0 or 'gl_InstanceIndex' not in full or '[[render_target_array_index]]' in full[i:j]: return full, None
+    locs = {m.group(1): int(m.group(2)) for m in re.finditer(r'\n    float4 (\w+) \[\[user\(locn(\d+)\)\]\];', full[i:j])}
+    m = next((m for m in re.finditer(r'\n    out\.(\w+)\.([xyzw]) = as_type<float>\(', full) if m.group(1) in locs), None)
+    if not m: return full, None
+    name, comp = m.group(1), m.group(2)
+    st = re.sub(r'\n    float gl_PointSize \[\[point_size\]\];', '', full[i:j + 3]).replace('struct main0_out', 'struct main0l_out', 1)
+    st = st[:-3] + '\n    uint gl_Layer [[render_target_array_index]];\n};'
+    add = '\n' + st + '\n'
+    for ep, new in (('main0', 'main0_l'), ('main0_z', 'main0_lz')):
+        a = re.search(rf'\bvertex\s+main0_out\s+{ep}\s*\(', full)
+        if not a: return full, None
+        b, depth = full.find('{', a.end()), 0
+        for e in range(b, len(full)):
+            depth += full[e] == '{'; depth -= full[e] == '}'
+            if not depth: break
+        fn = full[a.start():e + 1].replace('main0_out', 'main0l_out').replace(f' {ep}(', f' {new}(', 1)
+        fn = re.sub(r'\n    out\.gl_PointSize = [^;\n]*;', '', fn)
+        add += '\n' + fn.replace('return out;', f'out.gl_Layer = as_type<uint>(out.{name}.{comp});\n    return out;') + '\n'
+    return full + add, {'loc': locs[name], 'comp': comp}
+
 def vs_depth(src):
     """Two entry points for the depth convention: the translator's vertex shader leaves z unchanged (NVN's near=0 convention); the main function is copied here - main0 gets the GL convention's (near=-w) z' = z/2 + w/2 before every return out
     (bit-identical to the formula Ryujinx used to emit in the translator), main0_z stays as is. The convention a game sets is runtime state (nvnDeviceSetDepthMode); the host picks the entry point by it, with nothing to configure per game.
@@ -607,6 +663,13 @@ def _ep_drop(x, ids):   # OpEntryPoint without the given interface IDs: model, f
 def finish(key, w, j, c1):
     name, k = loc[key]
     msl = os.path.join(w, key + '.metal'); lib = os.path.join(out, key + '_b.metallib')
+    if j['stage'] == 'gs':   # a geometry shader that only picks the layer is folded into the vertex shader by the host (see gs_slice); any other has no Metal counterpart and fails below
+        s = gs_slice(os.path.join(w, key + '.spv'))
+        if s:
+            refl = {'key': key + '_b', 'route': 'B', 'chain': CHAIN, 'dm_ctl': key, 'source': f'{name}#{k}', 'pc_paired': pc_of[key], 'stage': 'gs', 'gs_slice': s,
+                    'notes': [], 'drv_reads': '', 'drv_unfillable': [], 'bindings': []}   # no library: the host draws with the vertex shader's layer entry points
+            write_refl(key, refl)
+            return 'ok', '', refl
     if j['stage'] == 'vs': spv_single_lane(os.path.join(w, key + '.spv'))   # one-lane subgroups (see spv_single_lane)
     r = subprocess.run(['spirv-cross', *XC, os.path.join(w, key + '.spv'), '--output', msl], capture_output=True, text=True)
     if r.returncode: return 'MSL failed', r.stderr.strip()[:160], None
@@ -627,14 +690,20 @@ def finish(key, w, j, c1):
     if j['stage'] == 'vs' and PAIRS.get(key):   # outputs the pixel shader reads but the vertex shader does not write get (0,0,0,1) (see vs_pad)
         src, pad = vs_pad(key, src)
         if pad: open(msl, 'w').write(src)
+    lay = None
     if j['stage'] == 'vs':   # the two depth-convention entry points (see vs_depth); the analysis below uses the source with only main0
         src, full = vs_depth(src)
         if j.get('tf'): full += vs_tf(src, j['tf'])   # transform feedback capture (see vs_tf)
+        plain = full
+        full, lay = vs_layer_entry(full)   # layer entry points for a slice-writing geometry shader (see vs_layer_entry)
         open(msl, 'w').write(full)
     res = json.load(open(os.path.join(w, key + '.res.json')))
     try: MTL.compile('mac', msl, lib)   # MSL identical to one compiled before takes that library (dmsh_mtlcache.py)
     except subprocess.CalledProcessError as e:
-        return 'metal failed', str(e)[:160], None
+        if not lay: return 'metal failed', str(e)[:160], None
+        open(msl, 'w').write(plain); lay = None   # the layer entry points are an extra: a library that does not build with them is built without
+        try: MTL.compile('mac', msl, lib)
+        except subprocess.CalledProcessError as e: return 'metal failed', str(e)[:160], None
     clone(msl, os.path.join(out, key + '_b.metal'))
     if IOSOUT:   # iOS: the same MSL goes through iOS's single compile convention (dm/ios/tools/ios_metal.py) to produce an iphoneos metallib
         try: MTL.compile('ios', msl, os.path.join(IOSOUT, key + '_b.metallib'))
@@ -644,6 +713,7 @@ def finish(key, w, j, c1):
     refl = {'key': key + '_b', 'route': 'B', 'chain': CHAIN, 'dm_ctl': key, 'source': f'{name}#{k}', 'pc_paired': pc_of[key], 'stage': j['stage'],
             'entry': entry.group(2) if entry else 'main0', 'msl_entry_kind': entry.group(1) if entry else None, **({'entry_z': 'main0_z'} if j['stage'] == 'vs' else {}),
             **({'entry_tf': 'main0_tf', 'tf_strides': [e[2] if e else 0 for e in j['tf']]} if j.get('tf') else {}),
+            **({'entry_layer': 'main0_l', 'entry_layer_z': 'main0_lz', 'layer_from': lay} if lay else {}),
             'threadgroup_size': j.get('local'), 'c1': c1.hex(), 'notes': res['notes'] + (['not in the answer table, queries use defaults'] if j.get('no_facts') else []), 'drv_reads': dr, 'drv_unfillable': unfillable(dr),
             'bindings': reflect(key, j['stage'], src, res),
             'vertex_inputs': [{'location': int(m.group(2)), 'msl_type': m.group(1)} for m in re.finditer(r'(\w+)\s+\w+\s*\[\[attribute\((\d+)\)\]\]', src)],

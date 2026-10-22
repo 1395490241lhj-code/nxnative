@@ -216,6 +216,16 @@ CUTS = {
   '9fe60a212cff9b9a3656ab63d4f882e5': [
     (0x12e40, '90310294', '1f2003d5', 'nninitStartup: bl 0x9f480 (FMallocBinned3 constructor, 37 GB of address space) → nop; the host allocator is in the object already (hle_uemalloc.c)'),
   ],
+  # DRAGON QUEST XI S 1.0.4 (v262144) sdk (SDK 7.3.2, the same build as Super Mario Odyssey 1.4.1's, which has no virtual address memory and never allocates an address region): the node
+  # area cut, and regions of 1 GB and more aligned to 32 MB, as Absolum's. Unreal Engine 4.18's nninitStartup takes one region for the whole engine, which a NumberLineAllocator
+  # (main+0x177c4d0) hands out (16 GB by default, -SwitchVirtualAddressSpaceSize= in MB caps it: the profile's game_args); the 1 GB alignment would have put it 1 GB into the alias region.
+  # The constructor is at sdk+0x32c450 (the limit at +0x28 and the occupied length both from orr w9,wzr,#0x3fe00000); VammManager::AllocateAddressRegion's placement at sdk+0x32c600 aligns
+  # a region by its size as SDK 18 does: 64 KB under 2 MB, 2 MB under 4 MB, 4 MB under 32 MB, 32 MB under 1 GB, else 1 GB (+0x32c66c)
+  'fcf93a41b08c5193a1410d262602dc62': [
+    (0x32c460, 'e9230b32', '097ca052', 'AddressRegionManager constructor: node area limit orr w9,wzr,#0x3fe00000 → mov w9,#0x3e00000'),
+    (0x32c500, 'e9230b32', '097ca052', 'AddressRegionManager constructor: length of the node area registered as an occupied region orr w9,wzr,#0x3fe00000 → mov w9,#0x3e00000'),
+    (0x32c66c, 'ea030232', '0a40a052', 'AllocateAddressRegion: alignment of regions of 1 GB and more orr w10,wzr,#0x40000000 → mov w10,#0x2000000 (32 MB, as from 32 MB up)'),
+  ],
   # Octopath Traveler 0 1.0.5 (v327680) sdk (SDK 19.3.13): the AddressRegionManager node area 0x3fe00000 → 0x3e00000 (62 MB), as Engage's SDK 12 (above). The same constructor (sdk+0x1423ec): +0x1423fc
   # sets the node area limit, +0x142468 registers it as an occupied region. Unreal's region (-SwitchVirtualAddressSpaceSize, the profile's game_args) then starts 62 MB into the alias region, and the guest
   # block stays small enough for an iPhone next to the Unreal heap (hle_uemalloc.c), which lives outside it
@@ -646,7 +656,27 @@ def func_of(a):
     i = bisect.bisect_right(starts, a) - 1
     return (starts[i], starts[i + 1] if i + 1 < len(starts) else TEXT_END) if i >= 0 else (a, a + 4)
 done = set(); windows = []; jumps = {}; tabjumps = {}; tailcalls = set(); retries = []
-def jump_offsets(insl, j):
+def check_before_copy(insl, ctx, ld, idx):
+    """The index copied from the checked register before the check, far back (DRAGON QUEST XI S main+0x2dd8cd0: mov w0,w18, then 41 instructions with two other jump tables on x0, then
+    cmp w18,#4; b.hi; ldrsw x18,[x11,x0,lsl #2]; add x18,x18,x11; br x18). Accepted when the cmp and its b.hi come right before the load and the mov is the last writer of the index and of the
+    checked register before them (64 instructions back at most). The compiler checks one register and indexes with the other only when it knows they are equal; blocks in between that branch out
+    and back (main+0x2dd8ce0 → main+0x2dd8cb8) write neither. Tried only when every other form has failed (jump_offsets copy_first), so sites that rewrote before come out the same:
+    the one br x18 of its kind among the 25,508 x18 sites of that main. → the cmp, or None"""
+    k = ctx.index(ld)
+    if k < 2 or ctx[k - 1].mnemonic != 'b.hi' or ctx[k - 2].mnemonic != 'cmp': return None
+    m = re.fullmatch(r'(w\d+), #(0x[0-9a-f]+|\d+)', ctx[k - 2].op_str)
+    if not m: return None
+    src, kl = m.group(1), insl.index(ld)
+    def writes(p):   # capstone lists a compare's first operand as written (cmp w18,#4 at main+0x2dd8c30); it only sets the flags
+        return set() if p.mnemonic in ('cmp', 'cmn', 'tst') else {'w' + p.reg_name(r)[1:] for r in p.regs_access()[1]}
+    for q in range(kl - 3, max(0, kl - 64) - 1, -1):
+        p = insl[q]
+        mm = re.fullmatch(r'(w\d+), (w\d+)', p.op_str) if p.mnemonic == 'mov' else None
+        if mm and mm.group(1) in idx and mm.group(2) == src: break
+        if writes(p) & (idx | {src}): return None
+    else: return None
+    return ctx[k - 2]
+def jump_offsets(insl, j, copy_first=False):
     """The br x18 is preceded by the offset-table form (Engage main+0x12eec94): cmp w18,#N; b.hi; ldrsw x18,[xB,x18,lsl #2]; add x18,x18,xB.
     The index may be another register, and the bounds check may be on a register copied into it: Link's Awakening's GLSLC (subsdk0+0x1be6e8) has
     sub w0,w18,#0xd1; cmp w0,#0x31; b.hi; ldrsw x18,[x17,x0,lsl #2], its movie module (subsdk1+0xae9a4) cmp w21,#7; b.hi; ...; mov w18,w21; ldrsw x18,[x4,x18,lsl #2].
@@ -683,6 +713,7 @@ def jump_offsets(insl, j):
                     cmp = p
                 break
             if cmp: break
+    if not cmp and copy_first: cmp = check_before_copy(insl, ctx, ld, idx)
     if not cmp: return None
     n = int(cmp.op_str.split('#')[1], 0) + 1
     k = insl.index(ld); lo = page = None
@@ -797,6 +828,7 @@ for fa, fb in funcs:
                 tgt = jump_offsets(insl, j) or jump_adr_offsets(insl, j)
                 if not tgt and tail_call(insl, j): tailcalls.add(ins.address); continue
                 if not tgt and (far := jump_bytes_far(insl, j)): jumps[ins.address] = far; continue
+                if not tgt: tgt = jump_offsets(insl, j, copy_first=True)   # the index copied before the check (check_before_copy), only where every other form failed
                 assert tgt, f'jump table {ins.address:x}'
                 tabjumps[ins.address] = tgt; continue
             jumps[ins.address] = (base, width)

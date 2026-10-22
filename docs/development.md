@@ -431,6 +431,15 @@ The game's own work and its frame rate stay as they are; the host avoids work of
 - **Input:** controller only; the game maps its buttons by position, so B and X jump. The virtual gamepad starts in the 2D layout.
 - **Mac input:** a fresh save reaches the prologue with `DM_KEYS="f1850:A,f2200:A,f2600:A,f3000:A"` (the title, Climb, a new file, Begin; control of Madeline from about frame 5,000); then `f5100:LRight~1.0,f5400:LRight+X~0.3` walks to the first ledge and jumps onto it.
 
+**DRAGON QUEST XI S: Echoes of an Elusive Age – Definitive Edition (`01006C300E9F0000`)**
+- **Status:** brought up on the Mac through the opening movie, the title (name entry, system settings), the prologue movie (skipped with +) and into free play at Cobblestone Tor (the hero, Gemma, the villagers, the HUD and the minimap), at 30 fps with sound and saves; no red line, about 2.1 GB resident (1.1 GB of it Metal allocations), 1.5 GB mapped in the guest. An IPA builds; it has not run on an iPhone yet.
+- **Engine:** Unreal Engine 4.18 on SDK 7.3.2, update 1.0.4 (v262144), with Square Enix's own sound driver (`SQEX::Sd`, "SEAD") on the audio renderer; `subsdk0` is the movie module, driven by Unreal's Switch movie player (VP9 with two 6-channel Vorbis tracks).
+- **Files and shaders:** legacy version 4 paks whose blocks are LZ5-compressed, decoded on the Mac with the game's own `LZ5_decompress_safe` (`uepak.py`, `DM_OODLE_SERVE` after `nninitStartup`, since the decoder uses the game's malloc). The 38,892 shaders are inline in the cooked packages and in `GlobalShaderCache-GLSL_SWITCH.bin`, each a zlib stream of an `LSLG` record (`shader_split.py` `ue_legacy_jobs`). The colour-grading LUT's slice-writing geometry shader is folded into its vertex shader's layer entry points (`prog_fold_gs`); the other 22 geometry shaders do not build ([04](agents/04-graphics.md)).
+- **Sound and movies:** SEAD refills its voices without waiting on the renderer event, so catch-up frames wait for queue space. The movie player registers its decoder events before filling them (read at signal time), plays only when every track holds a decoded output (audio decoders keep 32), and after a skip sends an end-of-stream packet for every input it gets (none is handed out after end-of-stream) ([03](agents/03-bringup.md)).
+- **Memory:** Unreal's one address region is capped at 4064 MB (`game_args`, MB up to 4095); two cuts on the `sdk` build (node area 62 MB, 32 MB alignment for regions of 1 GB and more) put it 64 MB into Engage's 5 GB block. Its cube-map array (510 faces) needed NVN's layer-face count ([04](agents/04-graphics.md)).
+- **Frame rate:** 30 fps, as on the Switch; `hle_fpslock.c` has this build's `t.MaxFPS` and `nvn.SyncInterval`, unused without `fps_target` (60 fps not tried).
+- **Mac input:** with the save of an earlier run (the name entered), `DM_KEYS="20:A*150/3,250:Plus*4/10,480:B,483:LUp~4"` skips the prologue movie at about 270 s and walks on Cobblestone Tor at about 480 s.
+
 ## Tools (`dm/tools`)
 
 | Tool | What it does |

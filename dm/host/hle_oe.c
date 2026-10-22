@@ -97,6 +97,11 @@ HLE_FORCE("_ZN2nn2oe17DisableScreenShotEv", "screenshot switch; the host has no 
 HLE_FORCE("_ZN2nn2oe23BeginBlockingHomeButtonEv", "temporarily block the HOME button (through am); the host has no HOME button", void, h_oe_BlockHome, void) {}
 HLE_FORCE("_ZN2nn2oe21EndBlockingHomeButtonEv", "restore the HOME button (through am)", void, h_oe_UnblockHome, void) {}
 HLE_FORCE("_ZN2nn2oe29SetScreenShotImageOrientationENS_5album16ImageOrientationE", "screenshot orientation (through am); the host has no system screenshot", void, h_oe_ShotOrient, int o) { (void)o; }
+// DRAGON QUEST XI S: auto-sleep disabled sections (through am). The host never sleeps the device; the query reports whether a section is open, as the applet does
+static _Atomic int g_nosleep;
+HLE_FORCE("_ZN2nn2oe29BeginAutoSleepDisabledSectionEv", "open an auto-sleep disabled section (through am); the host never auto-sleeps, counted for the query", void, h_oe_NoSleepBegin, void) { g_nosleep++; }
+HLE_FORCE("_ZN2nn2oe27EndAutoSleepDisabledSectionEv", "close an auto-sleep disabled section (through am)", void, h_oe_NoSleepEnd, void) { if (g_nosleep > 0) g_nosleep--; }
+HLE_FORCE("_ZN2nn2oe19IsAutoSleepDisabledEv", "whether an auto-sleep disabled section is open", unsigned, h_oe_NoSleepQ, void) { return g_nosleep > 0; }
 HLE_FORCE("_ZN2nn2oe37IsUserInactivityDetectionTimeExtendedEv", "whether auto screen-off on inactivity is extended; the host does not turn the screen off, reports no", unsigned, h_oe_InactivityExtQ, void) { return 0; }
 // Hyrule Warriors: Age of Calamity (SDK 9.6.0, main+0x8d1238): the copyright frame buffer, an overlay the system draws only into screenshots and recordings. The SDK hands the buffer to am as transfer memory
 // (svcCreateTransferMemory, then a null applet proxy). The host has no system capture, so it keeps nothing

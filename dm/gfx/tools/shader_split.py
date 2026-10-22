@@ -486,13 +486,14 @@ def trpfs_jobs(files, parts=64):
 
 _OODLE = None
 def oodle(comp, n):
-    """The game's own OodleLZ_Decompress (Trinity's packs are Oodle Mermaid, and Oodle is linked into main): one Mac host per worker process in its tool mode (dm/host/hle_oodle.c, DM_OODLE_SERVE),
-    fed over a pipe. DM_OODLE_HOST = the host, DM_OODLE_MODULES = the rewritten modules it loads (the NSP script sets both for a game with Trinity packs, profile_guess.py shader_sources)"""
+    """The game's own decoder: OodleLZ_Decompress (Trinity's packs are Oodle Mermaid, and Oodle is linked into main), or LZ5_decompress_safe (DRAGON QUEST XI S's legacy Unreal paks):
+    one Mac host per worker process in its tool mode (dm/host/hle_oodle.c, DM_OODLE_SERVE), fed over a pipe. DM_OODLE_HOST = the host, DM_OODLE_MODULES = the rewritten modules it loads
+    (the NSP script sets both for a game with Trinity packs or legacy Unreal paks, profile_guess.py shader_sources)"""
     global _OODLE
     if _OODLE is None:
         import tempfile
         host, mods = os.environ.get('DM_OODLE_HOST'), os.environ.get('DM_OODLE_MODULES')
-        if not host or not mods: red('Oodle-compressed packs: set DM_OODLE_HOST (the Mac host, make -C dm/host GAME=<id> dmhost) and DM_OODLE_MODULES (the rewritten modules) to decode them with the game\'s own decoder')
+        if not host or not mods: red('Oodle- or LZ5-compressed game files: set DM_OODLE_HOST (the Mac host, make -C dm/host GAME=<id> dmhost) and DM_OODLE_MODULES (the rewritten modules) to decode them with the game\'s own decoder')
         err = tempfile.TemporaryFile()
         _OODLE = (subprocess.Popen([host, mods], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=err, env=dict(os.environ, DM_OODLE_SERVE='1')), err)
     p, err = _OODLE
@@ -501,7 +502,7 @@ def oodle(comp, n):
         got = struct.unpack('<Q', p.stdout.read(8))[0]
     except (BrokenPipeError, struct.error): got = None
     if got != n:
-        err.seek(0); red(f'the Oodle decoder in the Mac host failed on a {len(comp)} → {n} byte stream; ---- host output ----\n' + err.read().decode(errors='replace')[-3000:])
+        err.seek(0); red(f'the game\'s decoder in the Mac host failed on a {len(comp)} → {n} byte stream; ---- host output ----\n' + err.read().decode(errors='replace')[-3000:])
     return p.stdout.read(n)
 
 def trinity_shaders(path, rel, packs, out):
@@ -518,6 +519,61 @@ def trinity_shaders(path, rel, packs, out):
                 elif sz == n: data = d[st:st + sz]
                 else: red(f'/{rel}#{name}: file {k} has compression {comp} ({sz} → {n} bytes), which is not known')
                 scan_blob(data, f'/{rel}#{name}#{struct.unpack_from("<Q", d, hs[0] + 8 * k)[0]:016x}', out)
+
+UE_LEGACY = 'UE legacy pak'
+def ue_legacy_jobs(files, parts=64):
+    """Legacy Unreal paks (version 4, DRAGON QUEST XI S: pakchunk0-Switch.pak and pakchunk1-Switch.pak, 13.8 GB, and the update's *_0_P.pak): the engine mounts them all as one view, and a patch pak
+    (name ending in _P.pak) wins over the others for the same path. Only the newest copy of each path is scanned. → ([(pak path, rel, (UE_LEGACY, names)), …] in about equal raw sizes, the pak paths taken)"""
+    def legacy(p):
+        try:
+            with open(p, 'rb') as f: return uepak.pak_version(f) in uepak.LEGACY
+        except (OSError, ValueError, struct.error): return False
+    paks = [(p, r) for p, r in files if p.endswith('.pak') and legacy(p)]
+    if not paks: return [], set()
+    view = {}
+    for p, r in sorted(paks, key=lambda x: (x[1].endswith('_P.pak'), x[1])):   # patch paks last, so they replace; one view per pak folder (one per version given)
+        pk = uepak.Pak(p)
+        for name, e in pk.files.items(): view[(os.path.dirname(p), os.path.normpath(pk.mount + name))] = (p, r, name, e['raw'])
+    jobs, cur, size, step = [], collections.defaultdict(list), 0, sum(v[3] for v in view.values()) / parts
+    for p, r, name, raw in sorted(view.values(), key=lambda x: (x[1], x[2])):
+        cur[(p, r)].append(name); size += raw
+        if size >= step: jobs += [(p_, r_, (UE_LEGACY, tuple(ns))) for (p_, r_), ns in cur.items()]; cur, size = collections.defaultdict(list), 0
+    jobs += [(p_, r_, (UE_LEGACY, tuple(ns))) for (p_, r_), ns in cur.items()]
+    return jobs, {p for p, _ in paks}
+
+_PAKS = {}
+def ue_legacy_shaders(path, rel, names, out):
+    """Files of a legacy Unreal pak (ue_legacy_jobs), each decoded block by block with the game's own decoder (DRAGON QUEST XI S: LZ5) and scanned for the shader records the engine keeps inline"""
+    pk = _PAKS.get(path) or _PAKS.setdefault(path, uepak.Pak(path))
+    for name in names:
+        d = pk.read(name, decode=oodle)
+        ue_inline_shaders(d, f'/{rel}#{re.sub(r"^(\.\./)+", "", os.path.normpath(pk.mount + name))}', out)
+
+ZLIB_HEAD = re.compile(b'\x78[\x01\x5e\x9c\xda]')
+def ue_inline_shaders(d, label, out):
+    """Shaders kept inline in cooked Unreal packages (UE 4.18, DRAGON QUEST XI S: each material's shader map in its .uexp, 38 to 87 shaders in the ones looked at, and the engine's global shaders in
+    Engine/GlobalShaderCache-GLSL_SWITCH.bin, 945): each shader's code is a byte array (i32 length, then the bytes) holding one zlib stream, which inflates to an LSLG record as in the shader code
+    archives (uepak.lslg). Found by the zlib header and the length in front of it: a stream that inflates whole from exactly that many bytes and starts with LSLG (every such stream in the files
+    looked at). A record stored without compression (LSLG right after its length) is taken too. The engine combines vertex and pixel shaders per draw (separable_pairs)"""
+    import zlib
+    def take(s, at):
+        rec = uepak.lslg(s)
+        if not rec: red(f'{label}: the shader record at {at:#x} is not an LSLG record of the known layout')
+        tag, ctl, code = rec; st = UE_TAG.get(tag)
+        if not st: red(f'{label}: the shader record at {at:#x} has stage tag {tag}')
+        why = check(label, st, ctl, code)
+        if why: red(f'{label}: shader at {at:#x} ({st}): {why}')
+        out.append((f'{label}#UE{at:x}', st, ctl, code))
+    for m in ZLIB_HEAD.finditer(d):
+        i = m.start(); n = int.from_bytes(d[i - 4:i], 'little') if i >= 4 else 0
+        if not 2 <= n <= len(d) - i: continue
+        z = zlib.decompressobj()
+        try: s = z.decompress(d[i:i + n])
+        except zlib.error: continue
+        if z.eof and not z.unused_data and s[:4] == b'LSLG': take(s, i)
+    for m in re.finditer(b'LSLG', d):
+        i = m.start(); n = int.from_bytes(d[i - 4:i], 'little') if i >= 4 else 0
+        if 2 <= n <= len(d) - i and uepak.lslg(d[i:i + n]): take(d[i:i + n], i)
 
 def yaz0(s):
     """Yaz0 decompression (Super Mario 3D World + Bowser's Fury: almost all of RomFS is .szs = SARC wrapped in Yaz0). Pure Python runs at about 20–45 MB/s per core, under a minute for the whole 4.7 GB RomFS in parallel, and needs no extra dependency.
@@ -714,6 +770,9 @@ def scan_file(args):
     if len(args) > 2 and head[:8] == ONEPACK:   # a range of Trinity packs (trpfs_jobs)
         trinity_shaders(path, rel, args[2], found)
         return rel, uniq_keys(found), var_pairs(found), trees
+    if len(args) > 2 and args[2][0] == UE_LEGACY:   # files of a legacy Unreal pak (ue_legacy_jobs)
+        ue_legacy_shaders(path, rel, args[2][1], found)
+        return rel, uniq_keys(found), var_pairs(found), trees
     if len(args) > 2 and head[:4] == KPKA:   # entries of an RE Engine PAK (kpka_jobs)
         kpka_shaders(path, rel, args[2], found)
         return rel, uniq_keys(found), var_pairs(found), trees
@@ -789,7 +848,7 @@ def main():
         # Unreal Engine shader code archives decoded on the Mac (uepak.py): <version dir>/ue_shaders, or DM_UE_SHADERS; needed when the RomFS has Unreal paks
         ued = os.environ.get('DM_UE_SHADERS') or os.path.join(os.path.dirname(os.path.abspath(romfs)), 'ue_shaders')
         names = sorted(f for f in os.listdir(ued) if f.endswith('.ushaderbytecode')) if os.path.isdir(ued) else []
-        if not names and uepak.unreal_paks(romfs): red(f'the RomFS has Unreal paks, but there are no decoded shader code archives in {ued} (the NSP script writes them)')
+        if not names and uepak.unreal_paks(romfs, legacy=False): red(f'the RomFS has Unreal paks, but there are no decoded shader code archives in {ued} (the NSP script writes them)')
         for nm in names: found += ue_shaders(open(os.path.join(ued, nm), 'rb').read(), f'/ue_shaders/{nm}')
         results.append(('main', {skey(c, k): (w, s, c, k) for w, s, c, k in found}, var_pairs(found), {}))
     zdicts = {k: v for r in romfs_v for k, v in zs_dicts(r).items()}   # Tears of the Kingdom's zstd dictionaries (zs_dicts)
@@ -799,8 +858,9 @@ def main():
     big = [j for p, r in files for j in (linkdata_jobs(p, r) or [])]   # Three Houses' 6.9 GB DATA1.bin: one job per range of entries, not one read of the whole file
     pak_jobs, paks = kpka_jobs(files)   # Monster Hunter Rise's PAKs: the newest copy of each path, in ranges of entries
     tr_jobs, trp = trpfs_jobs(files)   # Pokémon Legends: Z-A's Trinity packs (data.trpfs and its index data.trpfd), decoded by the game's own Oodle in the Mac host
-    big += pak_jobs + tr_jobs
-    files = [(p, r) for p, r in files if not linkdata_jobs(p, r) and p not in paks and p not in trp]
+    ue_jobs, uep = ue_legacy_jobs(files)   # DRAGON QUEST XI S's legacy Unreal paks, decoded by the game's own LZ5 in the Mac host
+    big += pak_jobs + tr_jobs + ue_jobs
+    files = [(p, r) for p, r in files if not linkdata_jobs(p, r) and p not in paks and p not in trp and p not in uep]
     with cf.ProcessPoolExecutor(J, initializer=_pool_init, initargs=(common, {}, zdicts)) as ex:
         results += list(ex.map(scan_file, big)) + list(ex.map(scan_file, files, chunksize=16))
     trees, defer = {}, []

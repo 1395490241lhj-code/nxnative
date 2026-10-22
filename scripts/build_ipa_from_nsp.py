@@ -450,7 +450,10 @@ def survey(nsp_dir, app, fam, keys, repo, py, env):
     notes = []
     if not vulkan and 'nvnBootstrapLoader' not in mods['main']['imports']: notes.append('main imports neither nvnBootstrapLoader nor Vulkan functions: the host implements only NVN and Vulkan')
     if vulkan: notes.append(f'{S["graphics"][1]}; the NVN shader steps are skipped' + (', and its shaders are captured by booting it on the Mac (no SPIR-V file in the RomFS)' if S['vk_capture'][0] else ''))
-    notes += [S[k][1] for k in ('glslc_capture', 'ue_decode') if S[k][0]]
+    notes += [S[k][1] for k in ('glslc_capture',) if S[k][0]]
+    if S['ue_decode'][0]:   # the manifest has no pak footers, so both kinds are named; the build tells them apart by the footer's version (uepak.py)
+        notes.append(f'{rom["exts"].get(".pak", 0)} Unreal pak(s): version 11 paks keep the shaders Oodle-compressed in shader code archives (Octopath Traveler 0), decoded by booting the game on the Mac; '
+                     'legacy paks (version 4, DRAGON QUEST XI S) keep them inline in the cooked packages, which the shader split reads through the game\'s own decoder (LZ5) in the Mac host')
     if extra: notes.append(f'modules besides main / sdk: {", ".join(f"{n} ({mods[n]["kind"]})" for n in extra)}; the provisional profile loads {G["modules"][0]} (load order main, subsdk*, sdk)')
     if rom['mags']['UnityFS'] or 'Unity IL2CPP' in F['markers']: notes.append('Unity: the shaders are Shader objects in UnityFS bundles and data.unity3d, which shader_split.py reads through unityfs.py (written for Unity 2020.3\'s Switch format, also read for 2017.4 and 2022.3; check other Unity versions first)')
     if F['glslc']: notes.append(f'main has {F["glslc"]} GLSLC compiler output magics (0x19866891): shader_split.py takes those that are whole outputs (13 Sentinels and the KTGL games compile their shaders into main; Unity\'s player has 11 of its own)')
@@ -1253,7 +1256,7 @@ def main(args=None):
     vkcap = gfx == 'vulkan' and src['vk_capture'][0]   # SPIR-V shaders the game generates at run time, captured in the Mac host (capture_vk)
     uedec = gfx == 'nvn' and src['ue_decode'][0]   # Unreal Engine shaders, Oodle-compressed in the paks' shader code archives, decoded in the Mac host (decode_ue_shaders)
     if gfx == 'vulkan': say(f'Vulkan game ({src["graphics"][1]}): vk_shaders.py translates the shaders instead of the NVN shader chain')
-    for on, k in ((glslc, 'glslc_capture'), (vkcap, 'vk_capture'), (uedec, 'ue_decode'), (gfx == 'nvn' and src['oodle_packs'][0], 'oodle_packs')):
+    for on, k in ((glslc, 'glslc_capture'), (vkcap, 'vk_capture'), (uedec, 'ue_decode'), (gfx == 'nvn' and src['oodle_packs'][0], 'oodle_packs'), (gfx == 'nvn' and src['ue_legacy'][0], 'ue_legacy')):
         if on: say(src[k][1])
     PROG.add(glslc + vkcap + uedec + (gfx == 'nvn'))
     aoc = extract_aoc(nx, keys, work, app, fam, logs)
@@ -1285,8 +1288,8 @@ def main(args=None):
         cap = capture_vk(repo, game, patched, work, env, logs, g) if vkcap else None
         ios = build_vk_shaders(py, repo, [game / 'RomFS'] + ([cap] if cap else []), sh, env, logs, g, reuse=not (provisional or ALLOW_DAMAGED))
     else:
-        # Trinity packs: the split decodes them with the packed version's own Oodle decoder, in the Mac host built for the profile
-        oodle = (lambda: {'DM_OODLE_HOST': str(build_mac_host(repo, work / 'tools/dmhost', env, logs, g)), 'DM_OODLE_MODULES': str(patched)}) if src['oodle_packs'][0] else None
+        # Trinity packs and legacy Unreal paks: the split decodes them with the packed version's own decoder (Oodle, LZ5), in the Mac host built for the profile
+        oodle = (lambda: {'DM_OODLE_HOST': str(build_mac_host(repo, work / 'tools/dmhost', env, logs, g)), 'DM_OODLE_MODULES': str(patched)}) if src['oodle_packs'][0] or src['ue_legacy'][0] else None
         skey = split_shaders(py, repo, [dirs[v] / 'RomFS' for v in need], [dirs[v] / 'ExeFS/main' for v in need], sh / 'pkg', env, logs, g, provisional, oodle)
         ios = build_shaders(py, repo, sh, xlate, env, logs, g, provisional, skey)
 
