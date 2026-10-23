@@ -38,7 +38,7 @@ None of them has a default game: without one they stop and list the profiles. To
 | `package` | The version the profile's tables, prewarm list and notes were made on. The NSP script packs the newest version in the folder (`-p` / `PACKAGE` picks another) |
 | `shader_versions` | Versions whose union the shader tables are (base game first). A registered version is built from the profile as it is only when all of them are in the folder; otherwise from a derived profile, with tables from the packed version alone |
 | `modules` | Code modules rewritten and loaded, in load order. `rtld` is replaced by the host |
-| `romfs_marker` | A path that must exist in the RomFS |
+| `romfs_marker` | A path that must exist in the RomFS; empty checks the directory itself for a program without a data section (ANIMAL WELL) |
 | `zip_store` | Extensions the IPA stores without compressing |
 | `mem_reserve`, `mem_alias`, `mem_stack`, `app_pool` | Guest address-space partition and application pool (`hle_svc.c`) |
 | `mem_used` | Memory `GetInfo(UsedMemorySize)` reports beside the heap (default `0x4000000`, 64 MB). `SetHeapSize` checks a request against the real size of the loaded modules, so a game that sizes its heap as total − used and has more than 64 MB of modules needs at least their size here. Hyrule Warriors: Age of Calamity: 66.6 MB of modules, so the default made `SetHeapSize(pool − 64 MB)` fail and `nnMain` return at once; it sets 72 MB. Cuphead: 80 MB of modules, 84 MB |

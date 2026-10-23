@@ -598,6 +598,12 @@ The game's own work and its frame rate stay as they are; the host avoids work of
 - **Input:** controller only, docked (1280x720 in the cropped 1920x1080 window, by the game's choice), with the 3D pad layout: the investigation moves its cursor with the left stick and the view with the right one.
 - **Mac input:** the work folder's `run/ctl.sh` drives a run started with `DM_CTL`. From a fresh save: 15 s, A (New Game), Down, Down, A (English), Left, A (Yes), then A every 3 s into the investigation (about 3 minutes). With the autosave: `DM_KEYS="15:A,18:A,21:Left,22:A,30:A,40:A*45/3"` loads it and plays the opening again.
 
+**ANIMAL WELL (`010020D01AD24000`)**
+- **Version and status:** update 1.0.10 (`v655360`), SDK 20.5.7. The Mac host reaches the opening rooms at 60 fps with movement, jumping and audio; the unsigned IPA is confirmed playable on the iPhone. Only this update is registered in the profile. Item pickup and pause menus also work; save/reload remains unverified because the test did not reach a save checkpoint. One repeat run recovered from an AudioUnit startup timeout through the existing audio restart path.
+- **Files:** both the base and update Program NCAs have no data section. Assets live in `main`, whose read-only segment is about 32 MB. `nx_extract` now creates an empty RomFS directory (and a header-only survey manifest) when neither program has a data section. The profile's empty `romfs_marker` checks that directory. Base and update extraction were checked in both full and manifest modes.
+- **Shaders:** 46 BNSH shaders embedded in `main` (1 vertex, 45 pixel), all translated for Mac and iOS by the existing splitter and translator. No shader overrides, rewriter cuts or host changes were needed. The prewarm list covers the opening rooms.
+- **Memory and controls:** no NPDM system resource; the provisional 3.5 GB guest layout holds, with a 256 MB alias region and a 256 MB stack region. `main` has about 537 MB of BSS, counted by the existing big-module memory rule. During a four-minute Mac run, resident memory stayed near 855 MB and Metal allocations at 159 MB. The 2D virtual pad is selected; B jumps.
+
 ## Tools (`dm/tools`)
 
 | Tool | What it does |
