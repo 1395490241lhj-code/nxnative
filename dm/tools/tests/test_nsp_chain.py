@@ -1,5 +1,6 @@
 """NSP script chain files (scripts/build_ipa_from_nsp.py chain_header, chain_tables): a registered profile's stale chain version header is written again and a current one left alone,
-and only the c1 / uniform extent tables that name another chain are made again (GitHub issue #78); no game files, keys or Xcode needed (temporary files only in a temporary folder)."""
+only the c1 / uniform extent tables that are missing (they are not committed) or name another chain are made (GitHub issue #78), and no step's reuse key counts them;
+no game files, keys or Xcode needed (temporary files only in a temporary folder)."""
 import importlib.util
 import os
 from pathlib import Path
@@ -69,28 +70,33 @@ class Tables(Base):
     def tables(self, c1, cb, every=False):
         for n, chain in (('c1_full.tsv', c1), ('cb_extent.tsv', cb)):
             if chain: (self.tmp / n).write_text(f'# chain b-{chain} 2026-10-23T00:00:00+00:00\n')
-        nsp.chain_tables(sys.executable, REPO, self.sh, {}, self.tmp / 'logs', self.g, self.CHAIN, every)
+        return nsp.chain_tables(sys.executable, REPO, self.sh, {}, self.tmp / 'logs', self.g, self.CHAIN, every)
 
     def test_current_kept(self):
-        self.tables(self.CHAIN, self.CHAIN)
+        self.assertTrue(self.tables(self.CHAIN, self.CHAIN))
         self.assertEqual(self.ran, []); self.assertEqual(self.said, [])
 
     def test_stale_made_again(self):
-        self.tables(self.CHAIN, 'fc6c0368c7b9')
+        self.assertTrue(self.tables(self.CHAIN, 'fc6c0368c7b9'))
         self.assertEqual(self.ran, ['cb_extent.py']); self.assertIn('named b-fc6c0368c7b9', self.said[0])
 
-    def test_missing_made(self):
-        self.tables(None, None)
-        self.assertEqual(self.ran, ['c1_guard.py', 'cb_extent.py'])
+    def test_missing_made(self):   # a checkout's first pack: the tables are not in the repository
+        self.assertTrue(self.tables(None, None))
+        self.assertEqual(self.ran, ['c1_guard.py', 'cb_extent.py']); self.assertIn('c1_full.tsv missing', self.said[0])
 
     def test_every(self):   # a provisional or derived profile: both, current or not
-        self.tables(self.CHAIN, self.CHAIN, every=True)
+        self.assertTrue(self.tables(self.CHAIN, self.CHAIN, every=True))
         self.assertEqual(self.ran, ['c1_guard.py', 'cb_extent.py']); self.assertEqual(self.said, [])
 
-    def test_no_mac_outputs(self):
+    def test_no_mac_outputs(self):   # build_shaders then builds again (reuse) or stops (after a build)
         shutil.rmtree(self.sh / 'cache')
-        self.tables('fc6c0368c7b9', self.CHAIN)
-        self.assertEqual(self.ran, []); self.assertIn('the host ignores it', self.said[0])
+        self.assertFalse(self.tables('fc6c0368c7b9', self.CHAIN))
+        self.assertEqual(self.ran, [])
+        self.assertTrue(self.tables(self.CHAIN, self.CHAIN))   # nothing to make: no Mac outputs needed
+
+    def test_not_profile_inputs(self):   # the steps' reuse keys leave out what the iOS shader step makes
+        for n in ('game.tsv', 'shader_map.tsv', 'c1_full.tsv', 'cb_extent.tsv'): (self.tmp / n).write_text('')
+        self.assertEqual([p.name for p in nsp.profile_files(types.SimpleNamespace(dir=self.tmp))], ['game.tsv', 'shader_map.tsv'])
 
 
 if __name__ == '__main__':
