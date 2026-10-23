@@ -107,7 +107,7 @@ class XcodePipelineTests(unittest.TestCase):
         output = io.StringIO()
         profile = SimpleNamespace(dir=Path('/external/profile/fixture'), id='fixture')
         with patch.object(build, 'PROG', build.Progress('json')), redirect_stdout(output):
-            build.report_profile_status(profile, profile, 'v0', False, True, prepare_xcode=True)
+            build.report_profile_status(profile, profile, 'v0', False, True, 'Xcode project')
         events = [json.loads(line) for line in output.getvalue().splitlines()]
         self.assertIn('Xcode project was built from a provisional', events[0]['msg'])
 
