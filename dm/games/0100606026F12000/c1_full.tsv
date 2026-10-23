@@ -1,4 +1,4 @@
-# chain b-67802dfe9729 2026-10-23T08:37:08+08:00 (list carried over from b-650bb0cacdba: that chain change did not touch any c1 read)
+# chain b-e3afba9007bc 2026-10-23T20:36:21+08:00 (list carried over from b-67802dfe9729: the precise:: min / max / clamp change touches no c1 read; its geometry shaders, built as compute kernels since bb585cd, were not checked)
 114ba379d35f98ac
 12041d2a0d717938
 18ccc110f0abf48e

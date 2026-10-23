@@ -1,4 +1,4 @@
-# chain b-0379eb846acf 2026-10-23T15:33:22+08:00
+# chain b-4963f4147256 2026-10-23T22:04:35+08:00 (list carried over from b-0379eb846acf: the precise:: min / max / clamp change touches no c1 read; its geometry shaders, built as compute kernels since bb585cd, were not checked)
 003b10eff97cf9df
 00403447654bcff9
 00bd5c7f7e8a2f43

@@ -1,1 +1,1 @@
-# chain b-e089af9ff789 2026-10-23T08:37:08+08:00 (list carried over from b-9f34046acf7c: that chain change did not touch any c1 read)
+# chain b-b38ccc4d4afd 2026-10-23T22:04:35+08:00 (list made on b-d48695f6487d; this chain only adds the clip-distance output forms to the geometry capture, which none of this game's vertex shaders write)

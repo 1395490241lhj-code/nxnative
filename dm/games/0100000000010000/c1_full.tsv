@@ -1,3 +1,3 @@
-# chain b-fc3150ef3ee3 2026-10-23T08:37:08+08:00 (list carried over from b-30fd9f023111: that chain change did not touch any c1 read)
+# chain b-9172252ffef7 2026-10-23T22:04:35+08:00 (list carried over from b-fc3150ef3ee3: the precise:: min / max / clamp change touches no c1 read; its geometry shaders, built as compute kernels since bb585cd, were not checked)
 6405f3e55facc7c9
 d9097b8aba3a7080

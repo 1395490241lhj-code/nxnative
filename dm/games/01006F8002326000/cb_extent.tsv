@@ -1,4 +1,4 @@
-# chain b-70d2e911c881 2026-10-23T08:37:08+08:00 (list carried over from b-87eb0f1ee74a: that chain change did not touch any uniform read)
+# chain b-de566a052820 2026-10-23T20:36:21+08:00 (list carried over from b-70d2e911c881: the precise:: min / max / clamp change touches no uniform read; its geometry shaders, built as compute kernels since bb585cd, were not checked)
 # shader key, then reg:bytes for each uniform slot whose reads stay inside its first bytes, and s<reg> for each storage slot it never writes (cb_extent.py)
 00000b0b62850e7a	0:176 1:48 4:112 5:752
 0003d299bcfe7e17	0:736 2:384 5:928

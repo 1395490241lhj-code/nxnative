@@ -1,2 +1,2 @@
-# chain b-20cad5a9f1b4 2026-10-23T08:37:08+08:00 (list carried over from b-01976727008f: that chain change did not touch any c1 read)
+# chain b-f06d2f4504e6 2026-10-23T20:36:21+08:00 (list carried over from b-20cad5a9f1b4: the precise:: min / max / clamp change touches no c1 read; its geometry shaders, built as compute kernels since bb585cd, were not checked)
 945bb048ae22abe1
