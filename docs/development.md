@@ -107,8 +107,10 @@ The unsigned IPA build still uses the repository's `dm/ios/DmIOS.xcodeproj`, ski
 
 Each game has a profile in `dm/games/<id>/`:
 - `game.tsv` holds the title ID, known builds, code modules, RomFS marker, memory split, app name and bundle ID;
-- the shader tables: `shader_map.tsv`, `shader_facts.tsv`, `shader_pairs.tsv`, `pso_manifest.tsv`, and `c1_full.tsv` / `cb_extent.tsv`, which each checkout makes from its own shader build (not committed);
-- `dmsh_chain.h` holds the chain version.
+- the shader tables: `shader_map.tsv`, `shader_facts.tsv`, `shader_pairs.tsv`, `pso_manifest.tsv`, and `c1_full.tsv` / `cb_extent.tsv`, which each checkout's full shader build makes (not committed);
+- `patches.py` (when there are any): the rewriter's patches of the game's own builds.
+
+The shader translation chain has one version for every game, in `dm/gfx/nvn/dmsh_chain.h`.
 
 The shader tools pick a profile with `DM_GAME=<id>`; `make -C dm/host` and `build_ipa.sh` pick it with `GAME=<id>`. Profiles are named after the base game's title ID. There is no default game: without `GAME` / `DM_GAME` the tools stop and list the profiles. `python3 dm/games/game.py list` lists the profiles. Host code that relies on one build's fixed addresses checks that build's ID.
 
@@ -134,10 +136,7 @@ $W/build/nx_extract/nx_extract <prod.keys> <base NSP> <update NSP> $W/data/$VER 
 for m in $(python3 dm/games/game.py $G modules); do python3 dm/tools/patch_nso.py $W/data/$VER/ExeFS/$m $W/build/patched_$VER $m; done
 # 3. shaders: extract from every version in the profile's shader_versions (comma-separated, base first), then translate into <cache>/b-<chain version>/
 DM_GAME=$G python3 dm/gfx/tools/shader_split.py $W/data/v0/RomFS,$W/data/$VER/RomFS $W/data/v0/ExeFS/main,$W/data/$VER/ExeFS/main $W/shader/pkg dm/games/$G/shader_map.tsv dm/games/$G/shader_facts.tsv dm/games/$G/shader_pairs.tsv
-DM_GAME=$G python3 dm/gfx/tools/dmsh_chain.py --header
-DM_GAME=$G python3 dm/gfx/tools/dmsh_build.py $W/shader/pkg $W/build/cache/metal_shader_cache
-python3 dm/gfx/tools/c1_guard.py $W/build/cache/metal_shader_cache/b-<chain version> dm/games/$G/c1_full.tsv
-python3 dm/gfx/tools/cb_extent.py $W/build/cache/metal_shader_cache/b-<chain version> dm/games/$G/cb_extent.tsv
+DM_GAME=$G python3 dm/gfx/tools/dmsh_build.py $W/shader/pkg $W/build/cache/metal_shader_cache   # also writes dm/games/$G/c1_full.tsv and cb_extent.tsv
 # 4. the host, and the button-icon font for the Nintendo-extension shared font
 make -C dm/host GAME=$G dmhost
 python3 dm/tools/make_ext_font.py $W/build/font/nintendo_ext.ttf
