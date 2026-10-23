@@ -509,12 +509,14 @@ def survey(nsp_dir, app, fam, keys, repo, py, env):
     G = pg.guess(F)   # the provisional profile's keys (write_profile writes the same)
     keep = G['modules'][0].split()   # how the build will get the shaders (decided again from the extraction at build time; the survey has only a RomFS manifest, so Unreal paks are guessed from main's markers)
     S = pg.shader_sources(mods['main']['imports'], F['glsl_src'], [m for m in keep if 'glslcCompile' in mods[m]['exports']], rom['mags']['SPIR-V'],
-                          rom['exts'].get('.pak', 0) if F.get('main_markers', set()) & {'Unreal', 'Unreal 4'} else 0, rom['mags']['Trinity pack'], gl_names=F.get('gl_names', 0))
+                          rom['exts'].get('.pak', 0) if F.get('main_markers', set()) & {'Unreal', 'Unreal 4'} else 0, rom['mags']['Trinity pack'], gl_names=F.get('gl_names', 0),
+                          gl_src=F.get('gl_src', 0), gl_files=sum(rom['exts'].get(e, 0) for e in pg.GL_FILES))
     vulkan, gl = S['graphics'][0] == 'vulkan', S['graphics'][0] == 'gl'
     notes = []
     if not vulkan and not gl and 'nvnBootstrapLoader' not in mods['main']['imports']: notes.append('main imports neither nvnBootstrapLoader nor Vulkan functions nor OpenGL through EGL: the host implements only NVN, Vulkan and OpenGL')
     if vulkan: notes.append(f'{S["graphics"][1]}; the NVN shader steps are skipped' + (', and its shaders are captured by booting it on the Mac (no SPIR-V file in the RomFS)' if S['vk_capture'][0] else ''))
-    if gl: notes.append(f'{S["graphics"][1]}; the NVN shader steps are skipped: gl_shaders.py translates its GLSL sources (MVGL archives, main\'s strings)')
+    if gl: notes.append(f'{S["graphics"][1]}; the NVN shader steps are skipped: gl_shaders.py translates its GLSL sources (MVGL archives, main\'s strings'
+                        + (', and the shaders it puts together at run time, captured by booting it on the Mac)' if S['gl_capture'][0] else ')'))
     notes += [S[k][1] for k in ('glslc_capture',) if S[k][0]]
     if S['ue_decode'][0]:   # the manifest has no pak footers, so both kinds are named; the build tells them apart by the footer's version (uepak.py)
         notes.append(f'{rom["exts"].get(".pak", 0)} Unreal pak(s): version 11 paks keep the shaders Oodle-compressed in shader code archives (Octopath Traveler 0), decoded by booting the game on the Mac; '
@@ -603,7 +605,7 @@ def write_profile(pdir, app, f):
 
 
 # ---- Derived profile (a version the game's profile was not brought up on) ----
-DERIVED_SKIP = {'game.tsv', 'shader_map.tsv', 'shader_facts.tsv', 'shader_pairs.tsv', 'c1_full.tsv', 'cb_extent.tsv', 'vk_capture.tsv', 'patches.py'}   # made again from the packed version's own files (patches.py: the rewriter's patches of the registered builds)
+DERIVED_SKIP = {'game.tsv', 'shader_map.tsv', 'shader_facts.tsv', 'shader_pairs.tsv', 'c1_full.tsv', 'cb_extent.tsv', 'vk_capture.tsv', 'gl_capture.tsv', 'patches.py'}   # made again from the packed version's own files (patches.py: the rewriter's patches of the registered builds)
 
 
 def derive_profile(g, pdir, ver, d, mods):
@@ -976,53 +978,59 @@ def decode_ue_shaders(repo, dirs, pkg_ver, patched, work, env, logs, g):
     PROG.end(f'{total:,} shaders in {hms(time.time() - t0)}')
 
 
-VK_CAPTURE_SECS = 120   # the longest Vulkan capture run: Super Mario Galaxy creates its 3,089 modules within 6 s of its first one (about 15 s after boot on an M4 Pro)
+CAPTURE_SECS = 120   # the longest run-time shader capture: Super Mario Galaxy creates its 3,089 Vulkan modules within 6 s of its first one (about 15 s after boot on an M4 Pro)
+# Run-time shader captures, by graphics API: the host's switch, the profile's table of the keys a capture must hold, and a capture file's name → its key (None: not a whole file;
+# the host writes each under a temporary name and renames it). Vulkan: <16 hex>.spv (dm/gfx/vk/hle_vk.m); GL: <16 hex>.vert / .frag (dm/gfx/gl/hle_gl.m sh_capture)
+CAPTURES = {'vk': dict(name='Vulkan', env='DM_VK_CAPTURE', table='vk_capture.tsv', what='SPIR-V shaders it generates', key=lambda n: n[:-4] if n.endswith('.spv') and len(n) == 20 else None),
+            'gl': dict(name='GL', env='DM_GL_CAPTURE', table='gl_capture.tsv', what='GLSL shaders it puts together',
+                       key=lambda n: n if re.fullmatch(r'[0-9a-f]{16}\.(vert|frag)', n) else None)}
 
 
-def vk_wanted(g):   # the SPIR-V keys the profile's vk_capture.tsv lists; None without the table (a provisional profile)
-    try: keys = {l.strip() for l in g.table('vk_capture.tsv').read_text().splitlines() if l.strip() and not l.startswith('#')}
+def capture_wanted(g, api):   # the keys the profile's capture table lists; None without the table (a provisional profile)
+    try: keys = {l.strip() for l in g.table(CAPTURES[api]['table']).read_text().splitlines() if l.strip() and not l.startswith('#')}
     except OSError: return None
     return keys or None
 
 
-def vk_done(d):   # keys of the whole SPIR-V files in a capture folder (the host writes each under a temporary name and renames it)
+def capture_done(d, api):   # keys of the whole files in a capture folder
     try: names = os.listdir(d)
     except OSError: return set()
-    return {n[:-4] for n in names if n.endswith('.spv') and len(n) == 20}
+    return {k for k in map(CAPTURES[api]['key'], names) if k}
 
 
-def capture_vk(repo, d, patched, work, env, logs, g):
-    """A Vulkan game without SPIR-V files (Super Mario Galaxy): it generates its SPIR-V shaders at run time (Hagi's GX shaders, from its pipeline database), so no game file holds them.
-    The game boots in the Mac host (headless and silent, no shader library) with DM_VK_CAPTURE (dm/gfx/vk/hle_vk.m), which writes each module to <version dir>/vk_capture, where vk_shaders.py
-    reads them with the RomFS; the modules are the same on every run. The run stops once every key the profile's vk_capture.tsv lists is there; without the table, once none has been added for 20 s.
-    A folder that already holds every listed key is reused"""
-    want, out = vk_wanted(g), d / 'vk_capture'
-    PROG.stage('Vulkan shader capture')
-    if want and vk_done(out) >= want:
+def capture_shaders(repo, d, patched, work, env, logs, g, api):
+    """Shaders no game file holds, made at run time: a Vulkan game without SPIR-V files (Super Mario Galaxy: Hagi's GX shaders, from its pipeline database) or an OpenGL game whose GLSL is put
+    together at run time (Balatro: LÖVE adds its header and its built-in code to each of the game's shader files, in Lua). The game boots in the Mac host (headless and silent, no shader
+    library) with DM_VK_CAPTURE (dm/gfx/vk/hle_vk.m) or DM_GL_CAPTURE (dm/gfx/gl/hle_gl.m), which writes each shader to <version dir>/vk_capture or gl_capture, where vk_shaders.py /
+    gl_shaders.py read them with the RomFS; the shaders are the same on every run. The run stops once every key the profile's capture table lists is there; without the table, once none has
+    been added for 20 s. A folder that already holds every listed key is reused"""
+    C = CAPTURES[api]; want, out = capture_wanted(g, api), d / f'{api}_capture'
+    PROG.stage(f'{C["name"]} shader capture')
+    if want and capture_done(out, api) >= want:
         say(f'reusing the captured run-time shaders: {out}'); PROG.end('reused'); return out
     PROG.set(step='building the Mac host')
     host = build_mac_host(repo, work / 'tools/dmhost', env, logs, g)
-    cap, rd, log = d / 'vk_capture.partial', work / 'tmp/vk_run', logs / 'vk_capture.log'
+    cap, rd, log = d / f'{api}_capture.partial', work / f'tmp/{api}_run', logs / f'{api}_capture.log'
     rmtree(cap); rmtree(rd); cap.mkdir(parents=True)
     for x in ('save', 'temp', 'msl'): (rd / x).mkdir(parents=True)
-    # everything the run writes stays in <id>_build (DM_ROOT is already there): a fresh save and temporary storage, an empty shader library folder (pipelines fail, the game still creates every module)
-    henv = dict(env, DM_ROMFS=str(d / 'RomFS'), DM_SAVE=str(rd / 'save'), DM_TEMP=str(rd / 'temp'), DM_MSL_DIR=str(rd / 'msl'), DM_VK_CAPTURE=str(cap))
+    # everything the run writes stays in <id>_build (DM_ROOT is already there): a fresh save and temporary storage, an empty shader library folder (pipelines fail, the game still creates every shader)
+    henv = dict(env, DM_ROMFS=str(d / 'RomFS'), DM_SAVE=str(rd / 'save'), DM_TEMP=str(rd / 'temp'), DM_MSL_DIR=str(rd / 'msl'), **{C['env']: str(cap)})
     PROG.set(step='booting the game', done=0, total=len(want) if want else None, unit='shaders')
-    say(f'booting the game in the Mac host to capture the SPIR-V shaders it generates at run time → {out}')
+    say(f'booting the game in the Mac host to capture the {C["what"]} at run time → {out}')
     t0 = time.time(); last = {'n': 0, 't': t0}
     def done():   # every listed key is there; without the table, none has been added for 20 s
-        got = vk_done(cap); n = len(got & want if want else got); PROG.set(done=n)
+        got = capture_done(cap, api); n = len(got & want if want else got); PROG.set(done=n)
         if n != last['n']: last['n'], last['t'] = n, time.time()
         return bool((want and got >= want) or (not want and n and time.time() - last['t'] > 20))
-    rc = boot_mac(host, patched, henv, rd, log, VK_CAPTURE_SECS, done)
-    got = vk_done(cap)
+    rc = boot_mac(host, patched, henv, rd, log, CAPTURE_SECS, done)
+    got = capture_done(cap, api)
     if rc is not None and not (want and got >= want): host_stopped(log, rc, time.time() - t0)
     if not got or (want and not got >= want):
         PROG.end(ok=False)
         PROG.say(f'---- last lines of {log} ----\n' + ''.join(collections.deque(open(log, errors='replace'), maxlen=40)).rstrip('\n'))
         raise BuildError(f'captured only {len(got)} run-time shaders'
                          + (f', the profile needs {len(want)}' if want else '') + f' (host output: {log})')
-    if want and got - want: say(f'[RED] captured shaders the profile\'s vk_capture.tsv does not list: {len(got - want)}')
+    if want and got - want: say(f'[RED] captured shaders the profile\'s {C["table"]} does not list: {len(got - want)}')
     swap_in(cap, out); rmtree(rd)
     PROG.end(f'{len(got)} shaders in {hms(time.time() - t0)}')
     return out
@@ -1586,13 +1594,14 @@ def main(args=None):
     src = pg.build_sources(game / 'ExeFS', game / 'RomFS', g.words('modules'))
     gfx = src['graphics'][0]   # nvn, vulkan (Hades: the host's Vulkan layer, SPIR-V shaders) or gl (Digimon Story Cyber Sleuth: the host's GL layer, GLSL sources)
     glslc = gfx == 'nvn' and src['glslc_capture'][0]   # shaders the game compiles at run time, captured in the Mac host (capture_glslc)
-    vkcap = gfx == 'vulkan' and src['vk_capture'][0]   # SPIR-V shaders the game generates at run time, captured in the Mac host (capture_vk)
+    vkcap = gfx == 'vulkan' and src['vk_capture'][0]   # SPIR-V shaders the game generates at run time, captured in the Mac host (capture_shaders)
+    glcap = gfx == 'gl' and src['gl_capture'][0]   # GLSL the game puts together at run time (LÖVE), captured in the Mac host (capture_shaders)
     uedec = gfx == 'nvn' and src['ue_decode'][0]   # Unreal Engine shaders, Oodle-compressed in the paks' shader code archives, decoded in the Mac host (decode_ue_shaders)
     if gfx == 'vulkan': say(f'Vulkan game ({src["graphics"][1]}): vk_shaders.py translates the shaders instead of the NVN shader chain')
     if gfx == 'gl': say(f'OpenGL game ({src["graphics"][1]}): gl_shaders.py translates the shaders instead of the NVN shader chain')
-    for on, k in ((glslc, 'glslc_capture'), (vkcap, 'vk_capture'), (uedec, 'ue_decode'), (gfx == 'nvn' and src['oodle_packs'][0], 'oodle_packs'), (gfx == 'nvn' and src['ue_legacy'][0], 'ue_legacy')):
+    for on, k in ((glslc, 'glslc_capture'), (vkcap, 'vk_capture'), (glcap, 'gl_capture'), (uedec, 'ue_decode'), (gfx == 'nvn' and src['oodle_packs'][0], 'oodle_packs'), (gfx == 'nvn' and src['ue_legacy'][0], 'ue_legacy')):
         if on: say(src[k][1])
-    PROG.add(glslc + vkcap + uedec + (gfx == 'nvn'))
+    PROG.add(glslc + vkcap + glcap + uedec + (gfx == 'nvn'))
     aoc = extract_aoc(nx, keys, repo, work, app, fam, logs)
     base = next((dirs[v] for v in versions if picks[v][1] is None), dirs[versions[0]])   # the folder the base game was extracted to alone
     # the app name and bundle ID both come from the base NSP: the game name in its control data, and a bundle ID from its title ID; a setting / the command line overrides them
@@ -1625,10 +1634,11 @@ def main(args=None):
     if uedec: decode_ue_shaders(repo, {v: dirs[v] for v in sv}, pkg_ver, patched, work, env, logs, g)
     sh = work / 'shader'
     if gfx == 'vulkan':   # the packed version's merged RomFS holds the SPIR-V files the game loads; a capture holds those it generates
-        cap = capture_vk(repo, game, patched, work, env, logs, g) if vkcap else None
+        cap = capture_shaders(repo, game, patched, work, env, logs, g, 'vk') if vkcap else None
         ios = build_vk_shaders(py, repo, [game / 'RomFS'] + ([cap] if cap else []), sh, env, logs, g, reuse=not (provisional or derived or ALLOW_DAMAGED), mac=mac)
-    elif gfx == 'gl':   # the GLSL sources in the packed version's archives and in its main (the game compiles them at run time; the host finds each by the hash of its text)
-        ios = build_gl_shaders(py, repo, [game / 'RomFS', game / 'ExeFS/main'], sh, env, logs, g, reuse=not (provisional or derived or ALLOW_DAMAGED), mac=mac)
+    elif gfx == 'gl':   # the GLSL sources in the packed version's archives and in its main (the game compiles them at run time; the host finds each by the hash of its text), and a capture of those it puts together
+        cap = capture_shaders(repo, game, patched, work, env, logs, g, 'gl') if glcap else None
+        ios = build_gl_shaders(py, repo, [game / 'RomFS', game / 'ExeFS/main'] + ([cap] if cap else []), sh, env, logs, g, reuse=not (provisional or derived or ALLOW_DAMAGED), mac=mac)
     else:
         # Trinity packs and legacy Unreal paks: the split decodes them with the packed version's own decoder (Oodle, LZ5), in the Mac host built for the profile
         oodle = (lambda: {'DM_OODLE_HOST': str(build_mac_host(repo, work / 'tools/dmhost', env, logs, g)), 'DM_OODLE_MODULES': str(patched)}) if src['oodle_packs'][0] or src['ue_legacy'][0] else None
