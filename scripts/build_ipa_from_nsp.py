@@ -15,7 +15,7 @@
 # Every intermediate file is under <id>_build/ in the NSP folder: extract/ (the extracted game files, kept for the next build unless KEEP_EXTRACTED / --no-keep-extracted), aoc/ (each DLC's RomFS by index), tools/ (nx_extract, and the Mac host for a run-time shader capture), patched_*/, shader/ (shader package and caches, kept so the next build is fast), logs/ (each step's full output), tmp/, ipa/. The finished IPA also goes to the NSP folder by default.
 # The DLC, the rewrite, the shader split and the iOS (or Vulkan) shaders are reused when all their inputs are as at their last successful run (the game files, the tools, the profile, Xcode and spirv-cross: fingerprint() keys beside their output);
 #   the iOS shaders' inputs are the shader package's content and the chain's own tools, so a split that runs again and writes the same package leaves them reused.
-# The shader translator is the in-repo dm/gfx/tools/dmsh_xlate_bin (the build whose fingerprints match dmsh_chain.lock; a rebuilt dll has different fingerprints and dmsh_build refuses it). The Metal compiler and spirv-cross may be other than the lock's: the iOS shaders
+# The shader translator is the in-repo dm/gfx/tools/dmsh_xlate_bin (the build whose fingerprints match dmsh_chain.lock; a rebuilt dll has different fingerprints and dmsh_build refuses it; its launcher is universal, so an Intel Mac runs it too). The Metal compiler and spirv-cross may be other than the lock's: the iOS shaders
 #   are built through dm/gfx/tools/own_compilers.py, which says so in one line and leaves the lock and the chain version as they are.
 # The Python running this file needs lz4, capstone and fonttools (and backports.zstd before Python 3.14); also needed: Xcode, xcodegen, .NET SDK 10, zstd, spirv-cross. A first run takes 2 (Metroid Dread) to 10 minutes (Breath of the Wild: 5 of them the shader split), longer when shader libraries must be compiled; a repeat run with unchanged inputs takes about 20 s (Metroid Dread), mostly packing the IPA. Key values are never printed.
 # The console shows one line per stage ([k/n] stage, with a bar, done/total, percent, elapsed time and ETA where the work can be counted); the tools' own output goes only to logs/ (PROGRESS / --progress). --progress json writes newline-delimited JSON events to stdout.
@@ -814,8 +814,14 @@ def glslc_done(d):   # capture files written whole: a GLSLC output (magic 0x1986
     return out
 
 
+def apple_silicon():   # hw.optional.arm64 is 1 on Apple silicon (for a Python under Rosetta too); an Intel Mac has no such key
+    return subprocess.run(['sysctl', '-n', 'hw.optional.arm64'], capture_output=True, text=True).stdout.strip() == '1'
+
+
 def build_mac_host(repo, out, env, logs, g):
-    """The Mac host for the profile, built into out: dm/host's own compile line (make -n) with the output moved, since make takes no target path with spaces and dm/host/dmhost may be another build's"""
+    """The Mac host for the profile, built into out: dm/host's own compile line (make -n) with the output moved, since make takes no target path with spaces and dm/host/dmhost may be another build's.
+    The host runs the game's own arm64 code natively, so an Intel Mac stops here (GitHub issue #54)"""
+    if not apple_silicon(): raise BuildError('this step boots the game in the Mac host, which runs the game\'s own arm64 code natively: it needs a Mac with Apple silicon, and this Mac has an Intel processor')
     host = repo / 'dm/host'
     run(['make', '-s', f'GAME={g.id}', f'gen/{g.id}/game_profile.h', 'gen/vpx/libvpx.a'], logs / 'mac_host_make.log', env=env, cwd=host)
     dry = subprocess.run(['make', '-n', '-B', f'GAME={g.id}', 'dmhost'], env=env, cwd=host, capture_output=True, text=True)
@@ -1483,7 +1489,8 @@ def main(args=None):
         provisional_prep(py, repo, env, logs, g)
         g = refine_after_rewrite(g, game, patched)
         if provisional and heapck and pg.heap_check_needed(game / 'ExeFS'):
-            PROG.add(1); g = heap_check(repo, game, patched, work, env, logs, g)
+            if apple_silicon(): PROG.add(1); g = heap_check(repo, game, patched, work, env, logs, g)
+            else: say('no heap check: it boots the game in the Mac host, which needs a Mac with Apple silicon; the profile keeps its guessed heap keys')
     if glslc: capture_glslc(repo, {v: dirs[v] for v in sv}, pkg_ver, patched, work, env, logs, g)
     if uedec: decode_ue_shaders(repo, {v: dirs[v] for v in sv}, pkg_ver, patched, work, env, logs, g)
     sh = work / 'shader'
