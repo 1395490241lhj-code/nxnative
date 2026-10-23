@@ -1,4 +1,4 @@
-# Game profile of AI: THE SOMNIUM FILES - nirvanA Initiative (Switch, update 1.0.2 = v131072). Plays on the Mac
+# Game profile of AI: THE SOMNIUM FILES - nirvanA Initiative (Switch, update 1.0.2 = v131072). Plays on the Mac and on the iPhone
 # Format: see dm/games/README.md
 # Unity 2020.3.30f1 (IL2CPP) with FMOD, SDK 13.3.5; subsdk0 is the movie module, which plays the game's movies through Unity's video player (960x540 NV12 frames).
 # The shaders are Shader objects in the Addressables bundles of StreamingAssets/aa (they carry type trees) and in Data/Resources, and 147 ComputeShader kernels, which Unity 2020.3 keys by
