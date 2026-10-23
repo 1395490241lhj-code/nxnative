@@ -589,6 +589,15 @@ The game's own work and its frame rate stay as they are; the host avoids work of
 - **Host changes:** the game patches texture handles into its recorded command buffers in place, at the command start + 0x10 it took from `GetCommandMemoryUsed`, so single texture binds are recorded with the handle there (`OP_BIND_TEX1`; without it the title showed a stretched icon and a new game a white screen); a depth texture drawn through a colour view of the same size (a shadow, copied back after the pass); `nvnBlendStateSetAdvancedMode` and `nvnCommandBufferSetDebugLabel` ([03](agents/03-bringup.md), [04](agents/04-graphics.md)).
 - **Mac input:** the work folder's `run/ctl.sh` drives a run started with `DM_CTL`; `DM_KEYS=14:A,18:A,26:A,31:A,41:Right,42:A,54:A` goes from the boot notices through a new game into the opening cutscene.
 
+**AI: THE SOMNIUM FILES (`010089B00D09C000`)**
+- **Status:** brought up on the Mac: the Spike Chunsoft logo movie, the title (its background movies), a new game (language, auto save notice), the opening at the merry-go-round and the first investigation with its conversation tutorial, both sticks; loading the autosave from the title. 60 fps (present interval 1), about 2.27 GB resident, flat over 5 minutes; audio through FMOD's AudioOut. Playable on an iPhone.
+- **Engine:** Unity 2017.4.17f1 IL2CPP with FMOD on SDK 6.4.2, update 1.0.1 (v65536). `subsdk0` is the movie module; the 168 movies (`StreamingAssets/Movie`, H.264 and AAC in MP4) play through Unity's video player, NV12 into CPU buffers copied to an R8 + RG8 texture pair each frame.
+- **Shaders:** 13,057 (6,572 vertex, 6,482 pixel, 3 geometry) in the AssetBundles of `StreamingAssets` (Cuphead's Unity 2017.4 layout) and `main`. The 3 geometry shaders (Unity's DX11 depth of field, a wireframe effect) do not build; none was drawn. The ComputeShader objects of `Data/resources.assets` have no type tree (red line in the split, as in Cuphead); no dispatch has missed one so far.
+- **Host changes:** an H.264 drain held up by a full set of output slots (the logo movie never ended, [03](agents/03-bringup.md)), and the per-stage composite programs restored after the precompile prediction ([04](agents/04-graphics.md)); both general.
+- **Memory:** no system resource; Unity sets a 3.11 GB heap (pool − used) in the 4 GB layout, `mem_used` 104 MB for the rewritten modules.
+- **Input:** controller only, docked (1280x720 in the cropped 1920x1080 window, by the game's choice), with the 3D pad layout: the investigation moves its cursor with the left stick and the view with the right one.
+- **Mac input:** the work folder's `run/ctl.sh` drives a run started with `DM_CTL`. From a fresh save: 15 s, A (New Game), Down, Down, A (English), Left, A (Yes), then A every 3 s into the investigation (about 3 minutes). With the autosave: `DM_KEYS="15:A,18:A,21:Left,22:A,30:A,40:A*45/3"` loads it and plays the opening again.
+
 ## Tools (`dm/tools`)
 
 | Tool | What it does |
