@@ -25,6 +25,7 @@
 #   · BEA (NintendoWare Bezel Engine archives, Big Brain Academy: Brain vs. Brain): BNSH in the .bfsha entries of the archives (zstd entries), see bea_members
 #   · MGFX (MonoGame effects, Celeste): the effects in its XNB files and SpriteBatch's in main, each shader a control section and a code area, see mgfx_effect
 #   · dvdbnd (FromSoftware, Dark Souls Remastered): GLSLC outputs in the BND3 archives (DCX zlib entries) of the .bdt files, indexed by the .bhd5 beside each, see bhd5_entries and bdt_shaders
+#   · data.arc (Super Smash Bros. Ultimate, smash_arc.py): GLSLC outputs in its SSBH shader databases and BNSH in its effects and UI layouts, each of its current files (zstd) scanned, see smash_arc_jobs
 # Code area: 0x30 header + (graphics) 0x50 SPH + instructions; header magic 0x12345678 for graphics, 0x12345679 for compute. The control section starts with 0x98761234, +0x704 = code area length,
 #   +0x700 = start of the c1 constant segment within the code area; for compute +0x748 thread group xyz (u32 ×3), +0x754 shared memory bytes (checked one by one against PC reflection on D2R's 22 compute shaders).
 # Stage: BNSH uses the stage slot; BAHS uses bits 10..13 of SPH word 0 (1 vertex 2 hull 3 domain 4 geometry 5 pixel), and a compute header means compute.
@@ -696,6 +697,35 @@ def trpfs_jobs(files, parts=64):
         taken |= {p, p[:-1] + 'd'}
     return jobs, taken
 
+def smash_arc_jobs(files, parts=128):
+    """Super Smash Bros. Ultimate's data.arc (17.6 GB, smash_arc.py): the game's current files, in ranges of about equal stored size. → ([(path, rel, entries), …], the paths taken)"""
+    import smash_arc
+    jobs, taken = [], set()
+    for p, r in files:
+        if not p.endswith('.arc'): continue   # only .arc files are opened (MT Framework's ARC archives share the extension, not the magic)
+        with open(p, 'rb') as f:
+            if f.read(8) != smash_arc.MAGIC: continue
+        ents = smash_arc.files(p, regions=True); taken.add(p)   # every region's files: some effects exist only in other regions'
+        cur, size, step = [], 0, sum(e[2] for e in ents) / parts
+        for e in ents:
+            cur.append(e); size += e[2]
+            if size >= step: jobs.append((p, r, tuple(cur))); cur, size = [], 0
+        if cur: jobs.append((p, r, tuple(cur)))
+    return jobs, taken
+
+def smash_arc_shaders(path, rel, ents, out):
+    """Each file of a range scanned as a file of its own: GLSLC outputs in the SSBH shader databases ('HBSS' … 'RDHS', the .nushdb files: 41 in 13.0.5), BNSH in the effects ('EFFN') and the UI
+    layout archives (SARC). Labels name the file by its format (an SSBH resource by its type, 'SHDR') and its path's hash40: /data.arc/SHDR#<hash40>"""
+    import mmap, smash_arc
+    with open(path, 'rb') as f, mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as d:
+        for e in ents:
+            if not e[3]: continue
+            b = smash_arc.read(d, e)
+            kind = b[0x13:0x0f:-1] if b[:4] == b'HBSS' else b[:4]
+            label = f'/{rel}/{kind.decode("latin1") if kind.isalnum() else "data"}#{e[0]:010x}'
+            n = len(out); scan_blob(b, label, out)
+            if len(out) == n and b'\x91\x68\x86\x19' in b: out.extend(glslc_shaders(b, label, need=False))
+
 _OODLE = None
 def oodle(comp, n):
     """The game's own decoder: OodleLZ_Decompress (Trinity's packs are Oodle Mermaid, and Oodle is linked into main), or LZ5_decompress_safe (DRAGON QUEST XI S's legacy Unreal paks):
@@ -959,6 +989,7 @@ def separable_pairs(keys):
         k = min(ins, key=lambda k: (-len(ins[k] & left), k)); cover.append(k); left -= ins[k]
     return {(v, p) for v in single for p in cover}, cover
 
+SMASH_ARC = struct.pack('<Q', 0xABCDEF9876543210)   # smash_arc.MAGIC (scan_file reads only the first bytes, without importing the reader)
 UE_TAG = {'SV': 'vs', 'SH': 'hs', 'SD': 'ds', 'SG': 'gs', 'SP': 'ps', 'SC': 'cs'}
 def main_imports(img):   # the names main imports (its dynamic symbols)
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../tools')); import nso_syms
@@ -1015,6 +1046,9 @@ def scan_file(args):
         return rel, uniq_keys(found), var_pairs(found), trees
     if len(args) > 2 and head[:4] == KPKA:   # entries of an RE Engine PAK (kpka_jobs)
         kpka_shaders(path, rel, args[2], found)
+        return rel, uniq_keys(found), var_pairs(found), trees
+    if len(args) > 2 and head[:8] == SMASH_ARC:   # files of Super Smash Bros. Ultimate's data.arc (smash_arc_jobs)
+        smash_arc_shaders(path, rel, args[2], found)
         return rel, uniq_keys(found), var_pairs(found), trees
     if len(args) > 2 and head[:4] == b'BDF3':   # entries of a FromSoftware dvdbnd archive (bdt_jobs)
         bdt_shaders(path, rel, args[2], found)
@@ -1103,8 +1137,9 @@ def main():
     tr_jobs, trp = trpfs_jobs(files)   # Pokémon Legends: Z-A's Trinity packs (data.trpfs and its index data.trpfd), decoded by the game's own Oodle in the Mac host
     ue_jobs, uep = ue_legacy_jobs(files)   # DRAGON QUEST XI S's legacy Unreal paks, decoded by the game's own LZ5 in the Mac host
     bd_jobs, bdts = bdt_jobs(files)   # Dark Souls Remastered's dvdbnd archives: the entries of each .bdt by its .bhd5 index, in ranges
-    big += pak_jobs + tr_jobs + ue_jobs + bd_jobs
-    files = [(p, r) for p, r in files if not linkdata_jobs(p, r) and p not in paks and p not in trp and p not in uep and p not in bdts]
+    arc_jobs, arcs = smash_arc_jobs(files)   # Super Smash Bros. Ultimate's data.arc: its current files, in ranges
+    big += pak_jobs + tr_jobs + ue_jobs + bd_jobs + arc_jobs
+    files = [(p, r) for p, r in files if not linkdata_jobs(p, r) and p not in paks and p not in trp and p not in uep and p not in bdts and p not in arcs]
     with cf.ProcessPoolExecutor(J, initializer=_pool_init, initargs=(common, {}, zdicts)) as ex:
         results += list(ex.map(scan_file, big)) + list(ex.map(scan_file, files, chunksize=16))
     trees, defer = {}, []

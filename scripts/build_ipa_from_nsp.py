@@ -536,8 +536,8 @@ def survey(nsp_dir, app, fam, keys, repo, py, env):
     if any(l.split()[:1] == ['nn::ro'] for l in R):
         nro, nrr = rom['exts']['.nro'], rom['exts']['.nrr']
         # NRR files register NROs by hash; with none loose the NROs are inside an archive (Super Smash Bros. Ultimate: 14 NRRs, 98 NROs in data.arc, whose exports main imports)
-        notes.append(f'imports nn::ro (loads NRO modules at run time): the RomFS has {nro} .nro files and {nrr} .nrr files; registered NROs are collected and rewritten for the Mac host'
-                     + (' (look inside archives for the registered modules)' if nrr and not nro else '') + '; iOS NRO embedding is not implemented yet')
+        notes.append(f'imports nn::ro (loads NRO modules at run time): the RomFS has {nro} .nro files and {nrr} .nrr files; registered NROs are collected and rewritten beside the other modules'
+                     + (' (look inside archives for the registered modules)' if nrr and not nro else '') + ' and embedded in the iOS app (gen_embed.py)')
     if fam['dlc']: notes.append('DLC present: it is extracted into the IPA and the host reports the indices as owned and mounts them; check that the host hooks every aoc / fs add-on content call main imports')
     R += ['', '## What it means for a port', ''] + [f'- {n}' for n in notes or ['—']]
     R += ['', '## Provisional profile keys (dm/games/profile_guess.py)', '', 'What the game files decide; mem_used follows the rewrite, and a game with virtual address memory that sets a heap gets a heap check on the Mac (scripts/build_ipa_from_nsp.py heap_check).', '', '```']
