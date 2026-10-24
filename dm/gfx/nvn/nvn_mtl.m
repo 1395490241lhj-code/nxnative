@@ -1313,7 +1313,6 @@ static const pfv_pair g_pfv_srgb[] = {
 };
 static int tex_need_pfv(MTLPixelFormat base, MTLPixelFormat view) {
     if (base == view) return 0;
-    if (base == MTLPixelFormatDepth32Float_Stencil8 && view == MTLPixelFormatX32_Stencil8) return 0;   // the stencil-only view needs no format-view usage (upgrading recreated the depth buffer in use)
     for (size_t i = 0; i < sizeof g_pfv_srgb / sizeof *g_pfv_srgb; i++)
         if ((base == g_pfv_srgb[i].a && view == g_pfv_srgb[i].b) || (base == g_pfv_srgb[i].b && view == g_pfv_srgb[i].a)) return 0;
     return 1;
@@ -1471,6 +1470,11 @@ static MTLTextureDescriptor *tex_desc(const tex_t *t, int packaged) {
     d.storageMode = MTLStorageModePrivate;   // Render targets and assets both go in GPU private storage (lossless compression available)
     d.usage = MTLTextureUsageShaderRead | (fmt_compressed(t->d.format) || packaged ? 0 : MTLTextureUsageRenderTarget)
             | (t->d.flags & NVN_TEXTURE_FLAGS_IMAGE ? MTLTextureUsageShaderWrite : 0);   // Image usage: shader-writable (compute kernels generating the 3D color lookup table, etc.
+    // A depth-stencil texture has the format-view usage from the start: its stencil is read through an X32_Stencil8 view (stencil-mode views and textures, the depth-stencil copy), which Metal's
+    // contract allows only with that usage. Apple GPUs read the view correctly without it, but the API validation layer aborts the process at the first such view (PR #106, found on Luigi's
+    // Mansion 3), and upgrading later would recreate a depth buffer in use. Unlike colour formats it costs nothing measured: on an M4 Pro a 2560x1440 one has the same allocated size and the same
+    // GPU time over eight load / store passes with and without it
+    if (d.pixelFormat == MTLPixelFormatDepth32Float_Stencil8) d.usage |= MTLTextureUsagePixelFormatView;
     return d;
 }
 // In-place upgrade: when the original texture was not created with PixelFormatView (off by default, to keep Apple GPU lossless compression) but a different-format view is needed, create a new one with the original spec + PixelFormatView, copy over every slice × level, and replace the registration.
