@@ -4,6 +4,7 @@ One line per symptom in the [subsystem references](../reference/): what you see 
 
 ## Rewriter
 
+- an updated game loses a needed cut because its NSO build ID changed, although the relevant code still matches a verified version; the rewriter reports `[RED] function patch ... skipped` when that match cannot be established. → [Function-matched cuts for unregistered builds](../reference/rewriter.md#function-matched-cuts-for-unregistered-builds)
 - `jump table <addr>` assertion in `patch_nso.py`, in a Unity / IL2CPP `main`. → [Offset jump tables through x18 read at rewrite time](../reference/rewriter.md#offset-jump-tables-through-x18-read-at-rewrite-time)
 - `jump table <addr>` assertion in `patch_nso.py`, in a `subsdk`. → [Offset jump tables with the bounds check on another register](../reference/rewriter.md#offset-jump-tables-with-the-bounds-check-on-another-register)
 - `jump table <addr>` assertion where the index is a copy made before the check (`mov w0,w18`, then 41 instructions holding two other jump tables on `x0`, then `cmp w18,#4; b.hi; ldrsw x18,[x11,x0,lsl #2]; add x18,x18,x11; br x18`). → [Index copied before the bounds check](../reference/rewriter.md#index-copied-before-the-bounds-check)
