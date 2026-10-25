@@ -270,3 +270,11 @@ The guest address space, heaps, pools, virtual address memory and the allocators
 - **Fix:** `defer_drain` has its own `@autoreleasepool`.
 - **Found on:** [The Legend of Zelda: Breath of the Wild](../../dm/games/01007EF00011E000/README.md): GitHub issue #9 (iPhone 16 Pro Max, handheld), killed in the first shrine. An 8 GB iPhone gives this app about 3.4 GB (resident plus `headroom to the system memory limit` stayed at 3,375 MB); resident memory grew from 2.6 GB at the shrine load until the kill. On the Mac a host without that pool grew 1 MB a frame in the shrine (GPU 3.0 → 4.4 GB in 2,400 frames); with it the shrine stays at 2.7–2.9 GB resident and 1.5–1.7 GB GPU, idle or walking (vmmap at 2.8 GB: about 1.6 GB guest memory, 0.75 GB private textures, 0.17 GB IOAccelerator).
 - **Note:** found on the way: dead texture serials and the fixed-size pool tracking table ([Dead texture serials kept in a ghost table](nvn-objects.md#dead-texture-serials-kept-in-a-ghost-table), [Memory-pool tracking table grows in blocks](nvn-objects.md#memory-pool-tracking-table-grows-in-blocks)).
+
+### GPU readback without an autorelease pool
+
+- **Symptom:** GPU memory grows with repeated `nvnTextureReadTexels` calls on a long-lived game thread, even after each readback completes.
+- **Cause:** the GPU path in `mtl_read_texels` runs outside a submission's autorelease pool. Metal's temporary command buffer and blit encoder keep the readback buffer alive in the calling thread's undrained pool.
+- **Fix:** `mtl_read_texels` encloses texture resolution, readback encoding, the GPU wait and the CPU copy in its own `@autoreleasepool`. The guest-memory path needs no Metal objects.
+- **Found on:** [The Legend of Zelda: Breath of the Wild](../../dm/games/01007EF00011E000/README.md), measured upstream in MacNativeGames commit `635fb31` and ported in [PR #195](https://github.com/seedds/nxnative/pull/195): about 130 readbacks a second retained 3.7 GB of GPU memory after 30 minutes. Those game measurements have not been repeated here.
+- **Check:** `make -C dm/gfx/tests GAME=010015100B514000 check_t_readback` checks literal GPU and CPU readback pixels and observes the real readback buffer through a weak reference while the caller's outer pool remains open. Removing only the local pool leaves that buffer alive and fails the lifetime check.

@@ -2897,9 +2897,8 @@ static int clear_rect_zero(int i) {
 
 
 // ================= Shaders / descriptor pool / pipelines / draws =================
-// The texture / sampler registry lock: game threads take it to register textures and samplers, the submit thread for every argument encode. An os_unfair_lock lends a
-// waiter's priority to its owner: with a mutex, a game thread (priority 46) preempted while holding it kept the submit thread (97) waiting, 1.8 ms a frame in a Tears of
-// the Kingdom shrine (MacNativeGames 5f5de5e: 155 -> ~0 ms/s of waiting)
+// Game threads register textures and samplers, the submit thread encodes arguments: lend a waiting submitter's priority to the owner.
+// Measurements: docs/reference/frame-rate.md, Registry lock priority inheritance.
 static os_unfair_lock g_rmu = OS_UNFAIR_LOCK_INIT;
 // ---------- Shader mapping table: Switch control section hash → PC metallib (produced by dm/gfx/tools/shader_map.py) ----------
 static NSMutableDictionary<NSString *, NSString *> *g_shmap;
@@ -3770,8 +3769,8 @@ void arena_begin(void) {
         if (a->fence && a->fence <= done && a->len > ARENA_KEEP && g_fence > a->fence + ARENA_IDLE) { res_remove(a->buf); [g_arenas removeObjectAtIndex:i]; } }
 }
 void arena_commit(uint64_t fence) { for (NvArena *a in g_sub_arenas) { a->fence = fence; [g_arenas addObject:a]; } [g_sub_arenas removeAllObjects]; g_cur_arena = nil; }
-// buf is __strong: an unqualified id * out-parameter is __autoreleasing under ARC, which put the arena buffer in the autorelease pool at every call (a few per draw;
-// MacNativeGames 0531f28: autorelease 2.63% -> 1.73% of replay time)
+// An unqualified id * out-parameter is __autoreleasing under ARC; __strong avoids autoreleasing the arena buffer at every allocation.
+// Measurements: docs/reference/frame-rate.md, Arena buffer ownership on allocation.
 static size_t arena_alloc(size_t n, __strong id<MTLBuffer> *buf) {
     n = (n + 255) & ~(size_t)255;
     if (!g_cur_arena || g_cur_arena->used + n > g_cur_arena->len) {
@@ -7629,8 +7628,8 @@ void mtl_read_texels(const tex_t *t, unsigned level, unsigned layer0, const NVNc
         free(lin);
         return;
     }
-    // The game's own thread, outside a submission: no pool drains what Metal autoreleases here (the command buffer, the encoder, the read-back buffer), and the thread lives
-    // for good, so without one every GPU read-back stayed alive (MacNativeGames 635fb31: Breath of the Wild's 130 read-backs a second held 3.7 GB after 30 minutes)
+    // A guest thread can live indefinitely without draining its outer pool: release readback temporaries here, after the GPU and CPU copies finish.
+    // Finding: docs/reference/memory.md, GPU readback without an autorelease pool.
     @autoreleasepool {
     id<MTLTexture> mt = tex_mtl(t);
     if (!mt) { memset(dst, 0, img * nz); return; }
