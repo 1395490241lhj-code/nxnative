@@ -109,6 +109,9 @@ def pack(a):
     shutil.copy2(a.host, mac / 'dmhost')
     mods = sorted({p for pat in MODULE_FILES for p in Path(a.patched).glob(pat)})
     if not any(p.name.endswith('.patched.bin') for p in mods): raise SystemExit(f'no rewritten module in {a.patched}')
+    for p in mods:
+        if p.name.endswith('.patched.bin') and not p.with_name(p.name.removesuffix('.patched.bin') + '.fixups.tsv').is_file():
+            raise SystemExit(f'no rewriter fixups for {p}')
     copy(mods, dm, clone)
     tables = [Path(a.tables) / n for n in TABLES if (Path(a.tables) / n).is_file()]
     if tables: copy(tables, dm, False)
@@ -120,7 +123,9 @@ def pack(a):
     step('game files'); copy([romfs], res / 'romfs', clone)
     icon = bool(a.icon and Path(a.icon).is_file())
     if icon: step('icon'); make_icns(a.icon, res / 'AppIcon.icns')
-    (c / 'Info.plist').write_bytes(plistlib.dumps(info_plist(a, minos, icon)))
+    info = info_plist(a, minos, icon)
+    info['DMModuleFiles'] = [p.name for p in mods]
+    (c / 'Info.plist').write_bytes(plistlib.dumps(info))
     (c / 'PkgInfo').write_text('APPL????')
     step(f'signing ({"ad-hoc" if a.sign == "-" else a.sign})'); sign(tmp, a.sign)
     old = out.with_name(out.name + '.old')

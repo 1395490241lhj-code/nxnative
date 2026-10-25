@@ -63,7 +63,9 @@ class App(unittest.TestCase):
         (t / 'env.txt').write_text('# baked in\nDM_BAKED=1\nDM_BOTH=bundle\n')
         subprocess.run(['sips', '-s', 'format', 'jpeg', '-z', '256', '256', '/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/GenericApplicationIcon.icns',
                         '--out', t / 'icon.jpg'], check=True, capture_output=True)
-        (t / 'bin/osascript').write_text('#!/bin/sh\necho "$@" > "$HOME/alert.txt"\n'); (t / 'bin/osascript').chmod(0o755)
+        (t / 'bin/osascript').write_text('#!/bin/sh\necho "$@" > "$HOME/alert.txt"\nprintf "%s\\0" "$@" > "$HOME/alert.args"\n'
+                                       '/usr/bin/osacompile -o "$HOME/alert.scpt" "$1" "$2" 2> "$HOME/alert.error"\n')
+        (t / 'bin/osascript').chmod(0o755)
         cls.app = t / 'Game - Test.app'
         cls.args = pack_app.parse([str(cls.app), '--host', str(t / 'dmhost'), '--patched', str(t / 'patched'), '--romfs', str(t / 'romfs'), '--msl', str(t / 'cache/b-0123456789ab'),
                                    '--tables', str(t / 'profile'), '--font', str(t / 'font'), '--aoc', str(t / 'aoc'), '--env-file', str(t / 'env.txt'), '--title-id', TID.lower(),
@@ -144,6 +146,61 @@ class App(unittest.TestCase):
         p = subprocess.run([broken / 'Contents/MacOS/nxnative'], env=dict(HOME=str(self.tmp / 'home'), PATH=f'{self.tmp / "bin"}:/usr/bin:/bin'), capture_output=True, text=True, timeout=30)
         self.assertEqual(p.returncode, 1)
         self.assertIn('game data inside this app is missing', (self.tmp / 'home/alert.txt').read_text())
+
+    def test_missing_modules(self):
+        for missing in (('main.patched.bin',), ('main.fixups.tsv',), ('main.patched.bin', 'main.fixups.tsv')):
+            with self.subTest(missing=missing):
+                broken = self.tmp / 'Missing module.app'; shutil.rmtree(broken, ignore_errors=True)
+                shutil.copytree(self.app, broken)
+                for name in missing: (broken / 'Contents/Resources/dm' / name).unlink()
+                home = self.tmp / 'home'
+                for name in ('alert.txt', 'host_run.txt'): (home / name).unlink(missing_ok=True)
+                p = subprocess.run([broken / 'Contents/MacOS/nxnative'], env=dict(HOME=str(home), PATH=f'{self.tmp / "bin"}:/usr/bin:/bin'),
+                                   capture_output=True, text=True, timeout=30)
+                self.assertEqual(p.returncode, 1)
+                self.assertFalse((home / 'host_run.txt').exists())
+                self.assertIn('game data inside this app is missing', (home / 'alert.txt').read_text())
+
+    def test_alert_title(self):
+        broken = self.tmp / 'Quoted name.app'; shutil.copytree(self.app, broken)
+        title = 'Game "Test" \\ Edition'
+        plist = broken / 'Contents/Info.plist'
+        info = plistlib.loads(plist.read_bytes()); info['CFBundleName'] = title; plist.write_bytes(plistlib.dumps(info))
+        shutil.rmtree(broken / 'Contents/Resources/romfs')
+        home = self.tmp / 'home'
+        (home / 'alert.scpt').unlink(missing_ok=True)
+        p = subprocess.run([broken / 'Contents/MacOS/nxnative'], env=dict(HOME=str(home), PATH=f'{self.tmp / "bin"}:/usr/bin:/bin'),
+                           capture_output=True, text=True, timeout=30)
+        self.assertEqual(p.returncode, 1)
+        self.assertTrue((home / 'alert.scpt').exists(), (home / 'alert.error').read_text())
+        args = (home / 'alert.args').read_bytes().decode().split('\0')[:-1]
+        self.assertEqual(args[2], title)   # data is passed separately from the compiled script
+        self.assertIn('game data inside this app is missing', args[3])
+
+    def test_relocated(self):   # run with the entire build folder unavailable
+        with tempfile.TemporaryDirectory() as dst:
+            dst = Path(dst).resolve(); moved = dst / self.app.name; home = dst / 'home'; home.mkdir()
+            self.app.rename(moved)
+            hidden = self.tmp.with_name(self.tmp.name + '.unavailable')
+            try:
+                self.tmp.rename(hidden)
+                p = subprocess.run([moved / 'Contents/MacOS/nxnative'], env=dict(HOME=str(home), PATH='/usr/bin:/bin'), capture_output=True, timeout=30)
+                self.assertEqual(p.returncode, 7)
+                ran = (home / 'host_run.txt').read_text()
+                self.assertIn(f'argv1={moved}/Contents/Resources/dm\n', ran)
+                self.assertIn(f'DM_MSL_DIR={moved}/Contents/Resources/msl\n', ran)
+                self.assertNotIn(str(self.tmp), ran)
+            finally:
+                if hidden.exists(): hidden.rename(self.tmp)
+                moved.rename(self.app)
+
+    def test_pack_missing_fixups(self):
+        with tempfile.TemporaryDirectory() as src:
+            src = Path(src); (src / 'main.patched.bin').write_bytes(b'code')
+            a = types.SimpleNamespace(**vars(self.args)); a.patched = str(src); a.out = str(self.tmp / 'Incomplete.app')
+            with contextlib.redirect_stdout(io.StringIO()), self.assertRaisesRegex(SystemExit, 'no rewriter fixups'):
+                pack_app.pack(a)
+            self.assertFalse(Path(a.out).exists())
 
     def test_copies(self):   # another volume (no APFS clone): plain copies, the same layout; a new app replaces the old one whole
         with mock.patch.object(pack_app, 'can_clone', lambda *a: False), mock.patch.object(pack_app, 'sign', lambda *a: None), mock.patch('sys.stdout'):

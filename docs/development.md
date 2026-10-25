@@ -176,7 +176,7 @@ The bundle holds what the IPA holds, with the Mac's shader libraries:
 
 ```
 <game name>.app/Contents/
-  Info.plist                 name, version, bundle ID, the profile's app_category; DMTitleID, DMRomfsMarker and DMLanguage for the launcher
+  Info.plist                 name, version, bundle ID, the profile's app_category; DMTitleID, DMRomfsMarker, DMLanguage and DMModuleFiles for the launcher
   MacOS/nxnative             the launcher (dm/mac/launcher.c, compiled by pack_app.py)
   MacOS/dmhost               the Mac host built for the profile
   Resources/romfs/           the packed version's RomFS
@@ -187,6 +187,8 @@ The bundle holds what the IPA holds, with the Mac's shader libraries:
 ```
 
 The RomFS, the shader libraries and the DLC are APFS clones (`cp -c`) of the build's files when the app is on the same APFS volume, so they take no space of their own; on another volume they are copied, after a check for free space. The app is written as `<app>.partial` and replaces the old one only when it is complete.
+
+The packer records the rewritten module files and their tables in `DMModuleFiles`, and rejects a module without its fixups table. Before starting the host, the launcher checks that every recorded file is readable and is a regular file, so losing a binary and its table together still produces the missing-data alert. The alert passes the game name and message as AppleScript arguments, preserving quotes and backslashes in game names.
 
 The launcher sets the host's environment from the bundle, as the iOS app's `main.m` does, and runs the host as a child process. The save, `pso_user.tsv` and temporary files go to `~/Library/Application Support/nxnative/<title ID>/` (`save/`, `temp/`; that folder is also `DM_ROOT` and the working folder). The host's output goes to `~/Library/Logs/nxnative/<title ID>.log`, and the previous run's is kept as `<title ID>.prev.log`. Environment switches go in `env.txt` in the Application Support folder, then in the bundle's `dm/env.txt` (one `KEY=VALUE` per line). Neither replaces a variable that is already set. The launcher passes SIGTERM, SIGINT and SIGHUP on to the host and returns the host's exit code. When the bundle's game data is missing, it shows an alert.
 

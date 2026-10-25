@@ -33,9 +33,22 @@ static int info_string(const char *key, char *out, size_t n) {   // a string key
 
 static void alert(const char *title, const char *msg) {   // a dialog (the app has no window of its own), and the same line on stderr
     fprintf(stderr, "[RED] %s\n", msg);
-    char script[2048]; snprintf(script, sizeof script, "display alert \"%s\" message \"%s\" as critical", title, msg);
-    char *argv[] = {"osascript", "-e", script, NULL}; pid_t pid; int st;
+    char *script = "on run argv\ndisplay alert (item 1 of argv) message (item 2 of argv) as critical\nend run";
+    char *argv[] = {"osascript", "-e", script, (char *)title, (char *)msg, NULL}; pid_t pid; int st;
     if (!posix_spawnp(&pid, "osascript", NULL, NULL, argv, environ)) while (waitpid(pid, &st, 0) < 0 && errno == EINTR) {}
+}
+
+static int modules_present(const char *dm) {   // the packer's inventory detects even a missing binary/table pair
+    CFBundleRef b = CFBundleGetMainBundle(); if (!b) return 0;
+    CFTypeRef files = CFBundleGetValueForInfoDictionaryKey(b, CFSTR("DMModuleFiles"));
+    if (!files || CFGetTypeID(files) != CFArrayGetTypeID() || !CFArrayGetCount(files)) return 0;
+    for (CFIndex i = 0; i < CFArrayGetCount(files); i++) {
+        CFTypeRef v = CFArrayGetValueAtIndex(files, i); char name[PATH_MAX], path[PATH_MAX]; struct stat st;
+        if (CFGetTypeID(v) != CFStringGetTypeID() || !CFStringGetCString(v, name, sizeof name, kCFStringEncodingUTF8) || !*name || strchr(name, '/')) return 0;
+        int n = snprintf(path, sizeof path, "%s/%s", dm, name);
+        if (n < 0 || (size_t)n >= sizeof path || stat(path, &st) || !S_ISREG(st.st_mode) || access(path, R_OK)) return 0;
+    }
+    return 1;
 }
 
 static void mkdirs(const char *path) {   // mkdir -p
@@ -70,7 +83,7 @@ int main(void) {
     info_string("DMRomfsMarker", marker, sizeof marker); info_string("DMLanguage", lang, sizeof lang);
     if (!info_string("DMTitleID", id, sizeof id) || strchr(id, '/')) { alert(name, "This app has no title ID in its Info.plist (DMTitleID): pack it again with build_ipa_from_nsp.py --platform mac-app."); return 1; }
     struct stat st; snprintf(p, sizeof p, "%s/%s", romfs, marker);
-    if (access(host, X_OK) || stat(p, &st) || stat(dm, &st)) {
+    if (access(host, X_OK) || stat(p, &st) || !modules_present(dm)) {
         alert(name, "The game data inside this app is missing or incomplete (Contents/Resources/romfs, Contents/Resources/dm or Contents/MacOS/dmhost): pack it again with build_ipa_from_nsp.py --platform mac-app.");
         return 1;
     }
