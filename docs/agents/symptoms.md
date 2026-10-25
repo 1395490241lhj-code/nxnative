@@ -61,6 +61,7 @@ One line per symptom in the [subsystem references](../reference/): what you see 
 - the frames stop at the first loading screen, a graphics worker at 100% CPU (17 s in, `UnityGfxDeviceWorker` running, the main thread waiting on a condition variable, no red line). → [Unity's GPU pool block allocation spins at size 0](../reference/memory.md#unitys-gpu-pool-block-allocation-spins-at-size-0)
 - SIGBUS inside a host hook (`snprintf` under `mount_ex` / `h_fs_MountSave`), then the process hangs (Super Mario 3D World + Bowser's Fury); SIGBUS inside Metal (`AGCDeserializedReply`, an AGX compiler block) at an address in the guest stack region (Breath of the Wild). → [Host calls on small guest stacks](../reference/memory.md#host-calls-on-small-guest-stacks)
 - the iPhone app is killed for memory; resident memory grows steadily (about 0.2 MB a frame) while the residency set and the texture counts stay flat. → [Deferred-release drain without an autorelease pool](../reference/memory.md#deferred-release-drain-without-an-autorelease-pool)
+- travelling produces a brief multi-GB footprint spike, then memory returns to its earlier level; periodic memory lines can miss the peak. Upload diagnostics show many swapped-out blocks still alive in one batch. → [Upload staging grows within one rendering submission](../reference/memory.md#upload-staging-grows-within-one-rendering-submission)
 
 ## Threads
 
