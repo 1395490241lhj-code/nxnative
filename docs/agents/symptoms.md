@@ -373,6 +373,7 @@ One line per symptom in the [subsystem references](../reference/): what you see 
 ## Shaders
 
 - `shader_split.py` finds 0 shaders in a RomFS of zstd files named `.zst`. → [Zstd files recognised by their magic](../reference/shaders.md#zstd-files-recognised-by-their-magic)
+- the game asks for shaders the map does not have (`[RED] shader ... is not in the shader map`, hundreds of lines), and the split finds far fewer shaders than the game uses (121 against 27,288 on Kirby and the Forgotten Land). → [HAL's `.cmp` containers: a size-prefixed frame](../reference/shaders.md#hals-cmp-containers-a-size-prefixed-frame)
 - a provisional split finds only a fraction of the shaders (3,126 of Pokémon Sword's 41,516). → [BNSH entries of GFPAK archives](../reference/shaders.md#bnsh-entries-of-gfpak-archives)
 - the split found no shader in the game (0 shaders). → [GLSLC outputs holding several stages](../reference/shaders.md#glslc-outputs-holding-several-stages)
 - an NVN game's split finds none of its shipped shaders, and the ones it compiles at run time were not captured: the game's renderer is in NROs that call `glslcCompile`, and its whole RomFS is one zip. → [GLSLC outputs in a zip archive, and those NROs compile at run time](../reference/shaders.md#glslc-outputs-in-a-zip-archive-and-those-nros-compile-at-run-time)
