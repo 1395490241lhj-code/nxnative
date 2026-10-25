@@ -14,6 +14,41 @@ The README covers packing and playing. This page is for working on nxnative itse
 | iOS app | One unsigned IPA for iPhone and iPad. The rewritten code is embedded in the executable; the shader libraries, the RomFS and the game icon are inside the app. A settings screen comes before the game (`Launcher.swift`, drawn from `dm/launcher.json`, which `dm/games/settings.py` writes from `dm/games/settings.tsv`); the host's loading starts at app launch meanwhile, and the frame rate and render scale go into the frame step state when the game starts (`loader.c` `dm_fps_state_apply`) |
 | Known gaps | Conditional render is always drawn; `MultiDraw*IndirectCount` waits on the CPU for the GPU-written count; geometry shaders do not translate. TBDR optimizations are off by default (they don't understand bindless textures yet). No amiibo. The bundled prewarm lists are empty. On the Mac, Mario's menu and dialogue text render blank (fine on the iPhone) |
 
+## Guest memory SVCs
+
+`dm/host/hle_svc.c` serializes heap resizing, physical map/unmap, stack
+map/unmap and memory queries with one memory-state lock. The alias bitmap is
+the source of committed/free runs for `QueryMemory` and of committed-byte
+accounting. With `mem_map_limit`, heap growth and physical maps check the same
+application-pool budget; overlapping maps charge only newly committed pages.
+Unexpected host protection failures abort before publishing state, including
+the `SetHeapSize` fail-fast check from PR #127.
+
+`MapMemory` borrows opened heap memory, committed alias memory or writable
+static-module data until an exact unmap copies it back. Another borrow,
+decommit, heap shrink or permission/attribute request cannot invalidate that
+source. Queries report its original state with borrowed attribute bit 0 and
+no user permissions. The implementation still copies bytes: source permissions
+are logical, and native host pages cannot isolate adjacent 4 KiB slices.
+Dynamic NRO backing is rejected because reload can restore it outside this
+ownership lifetime. Host-created guest threads allocate their stack backing
+through SDK malloc and free it after SDK thread destruction/copyback. Physical
+recommit may overlap a borrowed source: SDK allocators extend committed windows
+this way, and existing committed bytes are preserved.
+
+A host-page exposure bitmap preserves lazy zero-fill on first commitment.
+Later commits clear only newly committed logical slices, preserving live
+neighbors on a 16 KiB host page. GPU dirty tracking is notified when a mapping
+opens a host page and before stack copyback. The SDK retains address-region
+reservation ownership and its existing build patches.
+
+`make -C dm/host/tests GAME=<id> run` includes the production-dispatcher memory
+tests, real GPU dirty-tracker integration and heap-probe log compatibility.
+The focused targets are `heap_size`, `memory`, `memory-dirty`, `memory-profile`
+and `memory-tsan`; `memory` includes undefined-behavior and address sanitizers.
+Use `PYTHON=<venv>/bin/python` when the NSP tools' Python dependencies are in a
+virtual environment; the heap-probe check imports the production profile reader.
+
 ## The packing script in detail
 
 `scripts/build_ipa_from_nsp.py` (`-h` lists every option):
