@@ -46,8 +46,8 @@ reservation ownership and its existing build patches.
 tests, real GPU dirty-tracker integration and heap-probe log compatibility.
 The focused targets are `heap_size`, `memory`, `memory-dirty`, `memory-profile`
 and `memory-tsan`; `memory` includes undefined-behavior and address sanitizers.
-Use `PYTHON=<venv>/bin/python` when the NSP tools' Python dependencies are in a
-virtual environment; the heap-probe check imports the production profile reader.
+The heap-probe check imports the production profile reader and needs only the
+Python standard library; LZ4 is loaded when decoding NSO files.
 
 ## The packing script in detail
 
