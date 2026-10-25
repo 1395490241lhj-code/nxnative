@@ -2898,7 +2898,7 @@ static int clear_rect_zero(int i) {
 // ================= Shaders / descriptor pool / pipelines / draws =================
 static pthread_mutex_t g_rmu = PTHREAD_MUTEX_INITIALIZER;
 // ---------- Shader mapping table: Switch control section hash → PC metallib (produced by dm/gfx/tools/shader_map.py) ----------
-static NSMutableDictionary<NSString *, NSArray *> *g_shmap;
+static NSMutableDictionary<NSString *, NSString *> *g_shmap;
 static NSString *g_shmap_path, *g_msl_dir;
 static NSString *exe_rel(const char *rel) {
     char buf[4096]; uint32_t n = sizeof buf;

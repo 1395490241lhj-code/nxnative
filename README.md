@@ -20,6 +20,8 @@ This project is built on other people's work:
 
 ## Games
 
+Mac bring-up: [ASTRAL CHAIN](dm/games/01007300020FA000/README.md) (iPhone testing pending).
+
 All of these are tested on an iPhone and playable:
 
 Needs iOS / iPadOS 26 or later on an iPhone 15 Pro or newer (A17 Pro chip or later) or an iPad with an M1 chip or later: the games' textures are BC-compressed, and older iPhones can't read that format. Other games aren't supported yet. For them the script writes a survey and still tries its best to pack an IPA, guessing the game's settings; such an IPA may not start.
