@@ -66,6 +66,13 @@ Finding, keying and translating shaders (`dm/gfx/tools/shader_split.py`, `dmsh_b
 - **Fix:** such an output is read by its section headers (+0x4c section count, section *i*'s header at +0x90 + 0x90 *i*, type 0 = GPU code; `glslc_program`; the same headers SDK 4's outputs are read through, [GLSLC outputs read through their section headers](#glslc-outputs-read-through-their-section-headers)), and its stages are paired with each other, not as single-stage programs. The NSP script now stops at the split when it finds none.
 - **Found on:** Baba Is You (no profile).
 
+### GLSLC outputs in a zip archive, and those NROs compile at run time
+
+- **Symptom:** an NVN game's split finds none of its shipped shaders, and the ones it compiles at run time were not captured: the game's renderer is in NROs that call `glslcCompile`, and its whole RomFS is one zip.
+- **Cause:** Portal keeps all its files in `game.zip` (41,416 members, Deflate or stored). The Source engine's D3D9 layer (`materialsystem.nro`) links each vertex and pixel shader combination into one program; the programs of the game's precache list (`portal/glbaseshaders.cfg`, 219 entries) ship compiled as `nxcontent/nvsb/<hash>.nvsb` (`NVSB`, version 0x65, the file's length at +8, a 0x60-byte header, then one GLSLC output holding a vertex and a pixel shader). A deflated member hides the GLSLC magic from the loose-file scan. The game compiles the rest with `glslcCompile` (its movie shaders and its own blits: 10 outputs within 30 s of boot), and the capture rule looked only for `main` holding GLSL sources and importing `glslcCompile`.
+- **Fix:** `shader_split.py` reads zip archives member by member in parallel ranges (`zip_jobs` / `zip_shaders`; `zipfile`), each member scanned like a loose file, whole GLSLC outputs included. `profile_guess.py` `shader_sources` asks for the run-time GLSLC capture when an NRO the game loads imports `glslcCompile` and a subsdk defines it (`glslc_capture`). Portal's map: 242 keys from the `.nvsb` files and 13 from the capture, 229 vertex and pixel pairs.
+- **Found on:** [Portal](../../dm/games/01007BB017812000/README.md). No other profile's RomFS has a zip archive holding shaders.
+
 ### G2S containers in KTGL RDB archives
 
 - **How it is stored:** each material's shaders are a G2S container (`_S2G3000`, type KTID `0x7bcd279f`; 23,108 entries in `asset/system.rdb.bin*`, 2.3 GB inflated) of GLSLC outputs, as in 13 Sentinels' `main`, inside zlib-chunked IDRK entries ([01](../agents/01-extract.md)). One `_DOK0000` container (type `0x20a6a0bb`, the engine's system resources) holds 151 more bare GLSLC outputs, 21 of them drawn in the first battle.
