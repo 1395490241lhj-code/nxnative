@@ -94,8 +94,10 @@ private struct SettingRow: View {
                             if !note.isEmpty { Text(note) }
                         }
                     }
+                    .contentMargins(.horizontal, 12, for: .scrollContent)
                     .navigationTitle(s.label)
                     .navigationBarTitleDisplayMode(.inline)
+                    .toolbar(.visible, for: .navigationBar)
                 } label: {
                     HStack {
                         settingLabel
@@ -119,39 +121,42 @@ private struct LauncherView: View {
     @State private var memory = os_proc_available_memory()
 
     var body: some View {
-        HStack(spacing: 0) {
-            VStack(spacing: 16) {
-                if let icon = appIcon() {
-                    Image(uiImage: icon).resizable().frame(width: 96, height: 96)
-                        .clipShape(RoundedRectangle(cornerRadius: 22))
-                        .accessibilityHidden(true)
-                }
-                Text((info("CFBundleDisplayName") as? String) ?? "Game")
-                    .font(.title.weight(.bold)).multilineTextAlignment(.center)
-                Text("Version \((info("CFBundleShortVersionString") as? String) ?? "")")
-                    .font(.callout).foregroundStyle(.secondary)
-                playButton
-            }
-            .padding(24)
-            .frame(maxWidth: .infinity)
-            NavigationStack {
-                List {
-                    Section {
-                        ForEach(m.settings) { SettingRow(s: $0, m: m) }
+        GeometryReader { geometry in
+            HStack(spacing: 0) {
+                VStack(spacing: 16) {
+                    if let icon = appIcon() {
+                        Image(uiImage: icon).resizable().frame(width: 96, height: 96)
+                            .clipShape(RoundedRectangle(cornerRadius: 22))
+                            .accessibilityHidden(true)
                     }
-                    Section {
-                        HStack {
-                            Text("Memory available")
-                            Spacer()
-                            Text(ByteCountFormatter.string(fromByteCount: Int64(memory), countStyle: .memory)).monospacedDigit().foregroundStyle(.secondary)
+                    Text((info("CFBundleDisplayName") as? String) ?? "Game")
+                        .font(.title.weight(.bold)).multilineTextAlignment(.center)
+                    Text("Version \((info("CFBundleShortVersionString") as? String) ?? "")")
+                        .font(.callout).foregroundStyle(.secondary)
+                    playButton
+                }
+                .padding(16)
+                .frame(width: geometry.size.width / 3, height: geometry.size.height)
+                NavigationStack {
+                    List {
+                        Section {
+                            ForEach(m.settings) { SettingRow(s: $0, m: m) }
+                        }
+                        Section {
+                            HStack {
+                                Text("Memory available")
+                                Spacer()
+                                Text(ByteCountFormatter.string(fromByteCount: Int64(memory), countStyle: .memory)).monospacedDigit().foregroundStyle(.secondary)
+                            }
                         }
                     }
+                    .listStyle(.insetGrouped)
+                    .contentMargins(.horizontal, 12, for: .scrollContent)
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar(.hidden, for: .navigationBar)
                 }
-                .listStyle(.insetGrouped)
-                .navigationTitle("Settings")
-                .navigationBarTitleDisplayMode(.inline)
+                .frame(width: geometry.size.width * 2 / 3)
             }
-            .frame(maxWidth: .infinity)
         }
         .preferredColorScheme(.dark)
         .task {
