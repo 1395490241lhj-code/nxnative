@@ -625,6 +625,14 @@ shader on a GPU.
 
 ## Pipelines and caches
 
+### Pipeline keys omit unused colour state
+
+- **Symptom:** identical render pipelines compile repeatedly under different keys, lengthening startup prewarm and adding pipeline misses during play.
+- **Cause:** NVN blend and channel-mask state persists between draws, including state for colour targets absent from the current pass. `pso_desc` skips targets without a format and reads blend factors only when blending is enabled, but the old keys retained unused state. Deduplicating manifest lines alone also misses old rows whose unused state differs.
+- **Fix:** `pso_key_norm` in `nvn_pso_skey.h` clears blend factors when blending is disabled and, for normal passes, the blend-enable bit and write-mask nibble of every target without a format. Merged passes retain their logical blend-enable and mask state because `lmap` maps physical attachments to logical targets; a missing physical format does not imply the same logical target is unused. `pso_key_fill` normalizes live keys, `pso_skey_parse` normalizes historical prewarm rows, and `warm_worker` deduplicates the parsed keys across all input lists before compiling. Depth and stencil formats remain in the key because the `MTLDevice` path needs them, even though Metal 4 bases omit them.
+- **Found on:** [The Legend of Zelda: Breath of the Wild](../../dm/games/01007EF00011E000/README.md#files-and-shaders) (disabled blend factors), [The Legend of Zelda: Tears of the Kingdom](../../dm/games/0100F2C0115B6000/README.md#files-and-shaders) (absent-target state, reported by MacNativeGames).
+- **Check:** `t_pso_skey` covers normalized round trips, historical rows differing only in unused state, and preservation of merged-pass logical masks and blend bits; `t_pso_archive` checks disabled blend factors with all targets present. `make -C dm/gfx/tests GAME=<id> check_t_pso_warm` loads two synthetic manifests through `warm_worker`, checks compilation counts and draw-time cache hits, and compares GPU pixels with the original descriptors through both MTLDevice and Metal 4. It includes a merged pass whose physical attachment 0 uses logical target 7's blend and mask state.
+
 ### Shader cache key covering the pairs
 
 - **Symptom:** a vertex shader whose pairs changed was restored unpadded from `cas/`.

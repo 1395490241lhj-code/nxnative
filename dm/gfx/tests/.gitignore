@@ -82,3 +82,5 @@ t_stencil_view
 t_stencil_view.dSYM/
 t_pso_archive
 t_pso_archive.dSYM/
+t_pso_warm
+t_pso_warm.dSYM/

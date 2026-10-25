@@ -16,12 +16,9 @@ typedef struct {
 
 typedef struct { char vs[24], fs[24]; uint8_t vs_stage, fs_stage, merged, fz; pso_fz_desc fz_desc; pso_key k; } pso_skey;
 
-// What no pipeline depends on leaves the key, so one pipeline has one key: a target's blend factors when it does not blend (pso_desc reads blend[l] only where blend_en has
-// bit l) and, outside a merged pass (whose blend / mask index logical targets through lmap), the write mask and blend bit of a colour target the pass does not have. They
-// keep whatever earlier draws left. Breath of the Wild recorded 4,829 keys for 1,982 different pipelines, 2,845 of them told apart by such blend state alone; MacNativeGames
-// f3e2f66 found 35% of a Tears of the Kingdom prewarm list's render pipelines (8,479 of 24,146) differing only in it, each compiled again. The depth / stencil formats stay:
-// a Metal 4 base names none (pbase_key leaves them out, so keys that differ only there cost one specialization each), but a pipeline built through the MTLDevice must name
-// the pass's. pso_key_fill makes keys so, and pso_skey_parse reads rows recorded before so
+// Drop blend factors when blending is disabled, and blend / mask bits for absent normal-pass attachments. Merged passes index logical blend / mask state through lmap,
+// so physical formats cannot decide which logical targets to drop. Depth / stencil formats stay for MTLDevice pipelines. Normalize both live keys and old prewarm rows.
+// See docs/reference/shaders.md, Pipeline keys omit unused colour state; measurements belong to the linked game notes.
 static inline void pso_key_norm(pso_key *k, int merged) {
     for (int i = 0; i < 8; i++) {
         if (!merged && !k->cfmt[i]) { k->blend_en &= ~(1u << i); k->chmask &= ~(0xfu << (4 * i)); }
