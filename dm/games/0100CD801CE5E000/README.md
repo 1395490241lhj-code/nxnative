@@ -58,7 +58,7 @@ General host changes first needed here; each applies to every game:
 
 - **The GL layer's core-profile paths** (`GL_CONTEXT_PROFILE_MASK`, persistently mapped buffers and fences, attribute bindings and current values, uniform queries, texture storage, 3D and array textures, swizzles, mipmaps, base-vertex and instanced draws, blits) in `hle_gl.m`, and **`DM_GL_STUBS=1`**: [The GL core profile and persistently mapped buffers](../../../docs/reference/rendering.md#the-gl-core-profile-and-persistently-mapped-buffers), [GL uniforms, pipelines and attributes](../../../docs/reference/rendering.md#gl-uniforms-pipelines-and-attributes), [GL textures, swizzles and uploads](../../../docs/reference/rendering.md#gl-textures-swizzles-and-uploads), [GL draws and framebuffers](../../../docs/reference/rendering.md#gl-draws-and-framebuffers), [Which GL functions a game calls](../../../docs/reference/rendering.md#which-gl-functions-a-game-calls).
 - **`loader_census.py` following registers** (LÖVE's glad), and `vkGetInstanceProcAddr` left out of `profile_guess.py`'s Vulkan count: same section.
-- **GL shaders captured at run time** (`DM_GL_CAPTURE`, `gl_capture.tsv`): [development.md, The packing script in detail](../../../docs/development.md#the-packing-script-in-detail).
+- **GL shaders captured at run time** (`DM_GL_CAPTURE`, `gl_capture.tsv`, the NSP script's `capture_shaders`): [development.md, The packing script in detail](../../../docs/development.md#the-packing-script-in-detail).
 - **A renderer opened without an event** starts the render thread (`ar_open`): [A renderer opened without an event](../../../docs/reference/audio.md#a-renderer-opened-without-an-event).
 - **The Tap pad layout** (`pad_layout touch`, `DmGamepad.m`): [dm/games/README.md](../README.md).
 
