@@ -114,6 +114,13 @@ Finding, keying and translating shaders (`dm/gfx/tools/shader_split.py`, `dmsh_b
 - PlatinumGames' shader objects: `VSO\0` / `PSO\0` / `CSO\0` / `HSO\0` / `DSO\0` (the stage), u32 compiler version, u32 control length, u32 control offset (0x18), u32 code length, u32 code offset, and nothing else. The engine makes a program of each and binds them per stage at draw time, so they are single-stage programs, paired with a cover pixel shader (`shader_split.py` `pg_shader`; the archives: [01](../agents/01-extract.md)). It finds its built-in ones by name (`hwfillcolor.vso`, …) and checks each object's GPU code version against the driver's (the NVN layer's newest GPU code version follows the SDK: [Newest GPU code version reported by the driver](nvn-objects.md#newest-gpu-code-version-reported-by-the-driver), SDK 13.3.2).
 - **Found on:** [Bayonetta 3](../../dm/games/01004A4010FEA000/README.md): 8,024 objects in `root_000.pkz` (`shader.dat`, `shader2.dat`, `shadereff*.dat`, `autoshadereff.dat`); 6,424 distinct keys (4,288 pixel, 2,047 vertex, 78 compute, 6 domain, 5 hull).
 
+### BNSH files in PlatinumGames DAT archives inside CRI CPK archives
+
+- PlatinumGames' engine in its Wii U form keeps its shaders as BNSH files of one stage each, the `.vso` / `.pso` members of PlatinumGames DAT archives (`shader.dat`, `shader2.dat`, `shadereff.dat`) inside a CRI CPK archive, all CRILAYLA-compressed ([01](../agents/01-extract.md) has the CPK layout). `dm/gfx/tools/cpk.py` reads the @UTF tables (and the masked ones of Unicorn Overlord's CPKs, the same tables as before once unmasked), the TOC and CRILAYLA (a decoder over a bit string, about 29 MB/s); `shader_split.py` `cpk_jobs` splits the CPKs into jobs and scans each entry (a CPK it cannot read is scanned as one file, with a `[RED]` line).
+- Each file is one variation with one stage, so the split pairs nothing; as in Hades II, the vertex shaders write every output their pixel shaders read and no pipeline failed to link.
+- **Found on:** [Bayonetta 2](../../dm/games/01007960049A0000/README.md): 1,856 distinct keys (1,547 pixel, 309 vertex) in `shader.dat`, `shader2.dat` and `shadereff.dat` of `data000.cpk` (the split about 2.5 minutes); [Bayonetta](../../dm/games/010076F0049A2000/README.md): 458 distinct keys (236 pixel, 222 vertex), the members of `shader.dat` in `data00.cpk` (about 1.7 minutes). All build for both.
+- **Not checked:** 13 Sentinels and Catherine: Full Body's CPKs (no files on the drives).
+
 ### Shaders in a zlib stream in main (YEBIS .tfxo)
 
 - **Symptom:** shaders the game draws are missing from the map (`DM_NVN_SHDUMP`), in no RomFS file and no module, stored or LZ4, and not compiled at run time.

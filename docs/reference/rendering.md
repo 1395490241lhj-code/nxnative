@@ -203,6 +203,14 @@ The replay on Metal (`dm/gfx/nvn/nvn_mtl.m`) and the Vulkan and OpenGL layers. E
 - **Fix:** a draw whose vertex shader writes the layer opens a layered pass (`g_rp_layered` in `draw`, `g_pass.layered` in `rp_begin_ex`): the pass gets every layer the attachments have from their attached one on (3D textures: depth planes), and it is split when the next draw's shader differs. `DM_NVN_PASSDUMP` prints `L … layered pass: n layers`.
 - **Found on:** [Pokémon Legends: Z-A](../../dm/games/0100F43008C44000/README.md): the 3D scene came out black once the opening reached Lumiose. The game builds its 32×32×32 colour grading LUT with `b29f08619f379a83`, one instance per depth plane, each writing its plane through `render_target_array_index`, and tone-maps the frame through that LUT.
 
+### Clears of attachments larger than the render pass
+
+- **Symptom:** a scene drawn only in a small square in the top-left corner of a black screen; speckled and blocky patches; a full-screen overlay showing one tile; the texture dump right after the scene pass shows the picture only in the corner, and `DM_NVN_HILITE` on the scene's shaders lights only the corner.
+- **Cause:** a Metal render pass covers only the smallest of its attachments, and so does a clear in its load action. A clear folded into a pass whose other attachment is smaller cleared only that corner of the larger target, so later draws failed the depth test against the previous frames' depth everywhere else. NVN clears the whole target.
+- **Fix:** `rp_begin_ex_` (`nvn_mtl.m`) clears an attachment larger than the pass in a pass of its own first and loads it in the real one (`C … cleared in a pass of its own` in a pass dump).
+- **Found on:** [Bayonetta 2](../../dm/games/01007960049A0000/README.md): every frame starts with a pass whose colour target is 32x32 (then 256x256 ones) beside the 1280x720 depth buffer, and the game clears the depth there; the story's opening narration showed its scene in a 32x32 or 256x256 square of a black screen. [Bayonetta](../../dm/games/010076F0049A2000/README.md) needed nothing more.
+- **Not checked:** the fix in other games beyond the unit tests.
+
 ### Lazy clears folded into the next pass
 
 - **Fix:** lazy clears (`DM_NVN_LAZY_CLEAR`) fold clear-only passes into the pass that follows.
@@ -500,6 +508,13 @@ The replay on Metal (`dm/gfx/nvn/nvn_mtl.m`) and the Vulkan and OpenGL layers. E
 - **Symptom:** a scaled texture copy skipped with a red line (Metal blits cannot scale); format-changing, depth-stencil and mirrored copies.
 - **Fix:** such copies (a format change, a scaled region or a mirrored one) are drawn (`copy_t2t_draw`), one render pass per layer; a destination made without render-target use is upgraded first ([Render-target use added on demand](#render-target-use-added-on-demand)); depth and stencil are written from a fragment shader, stencil through `[[stencil]]` export from an `X32_Stencil8` view of the source.
 - **Found on:** [The Legend of Zelda: Link's Awakening](../../dm/games/01006BB00C6F0000/README.md): RG11B10F → RGBA16F every frame, half-size depth-stencil copies, and a scaled `MIRROR_Y` copy of the frame to 1280×720 RGBA8. [Super Mario 3D World + Bowser's Fury](../../dm/games/010028600EBDA000/README.md): one scaled copy when leaving the title (1920×1080 → 1280×720, RGB10A2, flags `ENGINE_2D`; probably the captured frame for the transition): 04 listed it as open (skipped with a red line); `copy_t2t_draw` now draws scaled copies too (its comment in `nvn_mtl.m` names this one), so it is no longer skipped.
+
+### `Downsample` of a single-sample texture
+
+- **Symptom:** `[RED] Downsample case not implemented: 320x176 1 samples format 70 → 80x48`; a missing bloom.
+- **Cause:** the host took `nvnCommandBufferDownsample` only as a multisample resolve and skipped the rest.
+- **Fix:** a single-sample source is drawn into the destination as a whole-level scaling copy with bilinear filtering, converting the format (`copy_t2t`, through `copy_t2t_draw`; [Copies a blit cannot do, drawn](#copies-a-blit-cannot-do-drawn)).
+- **Found on:** [Bayonetta 2](../../dm/games/01007960049A0000/README.md): its bloom from a 320x176 target into 80x48 and 48x32 textures, and its 1280x720 BGRA8 frame into an RGBA8 texture of the same size.
 
 ### Depth-stencil copies carry the stencil
 
