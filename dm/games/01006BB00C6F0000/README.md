@@ -61,12 +61,12 @@ Game-specific findings; the general host changes they led to are listed under [F
 
 General host changes first needed here; each applies to every game:
 
-- **Lower-left window origin** (`g_origin_ll`), **copies drawn as passes** (`copy_t2t_draw`), **compute `c0` with the dispatch size** (`encode_args_`, `nvn_refl.m`), **stencil in depth-stencil copies**: [04, Seen in Link's Awakening](../../../docs/agents/04-graphics.md#seen-in-the-legend-of-zelda-links-awakening).
+- **Lower-left window origin** (`g_origin_ll`), **copies drawn as passes** (`copy_t2t_draw`), **compute `c0` with the dispatch size** (`encode_args_`, `nvn_refl.m`), **stencil in depth-stencil copies**: [Lower-left window origin](../../../docs/reference/rendering.md#lower-left-window-origin), [Copies a blit cannot do, drawn](../../../docs/reference/rendering.md#copies-a-blit-cannot-do-drawn), [Compute `c0`: dispatch size and uniform buffer table](../../../docs/reference/shaders.md#compute-c0-dispatch-size-and-uniform-buffer-table), [Depth-stencil copies carry the stencil](../../../docs/reference/rendering.md#depth-stencil-copies-carry-the-stencil).
 - **Per-depth-mode vertex entry points** (`vs_depth`, `main0_z`, `mtl_set_depth_zero`): [04, section 5](../../../docs/agents/04-graphics.md#5-depth-convention).
-- **Vertex outputs start at (0, 0, 0, 1)** (`vs_init`): [04, section 6](../../../docs/agents/04-graphics.md#6-other-per-title-surprises-seen-in-mario).
+- **Vertex outputs start at (0, 0, 0, 1)** (`vs_init`): [Unwritten components of a written output start as (0, 0, 0, 1)](../../../docs/reference/shaders.md#unwritten-components-of-a-written-output-start-as-0-0-0-1).
 - **`shader_facts_manual.tsv`** for facts the machine code cannot tell: [dm/games/README.md](../README.md).
-- **The DeviceSink found by its size** (`capture` in `hle_audren.c`), the SDK 8 parameter size, `oe` notifications, the npad style event: [03, Services and SDK](../../../docs/agents/03-bringup.md#services-and-sdk).
-- **Jump tables checked on another register** (`jump_offsets`): [03, Rewriter](../../../docs/agents/03-bringup.md#rewriter).
+- **The DeviceSink found by its size** (`capture` in `hle_audren.c`), the SDK 8 parameter size, `oe` notifications, the npad style event: [SDK 8: command IDs numbered differently](../../../docs/reference/audio.md#sdk-8-command-ids-numbered-differently), [SDK 8's longer `AudioRendererParameter`](../../../docs/reference/audio.md#sdk-8s-longer-audiorendererparameter), [The oe notification event and its queue](../../../docs/reference/threads.md#the-oe-notification-event-and-its-queue), [Npad style set update event](../../../docs/reference/services.md#npad-style-set-update-event).
+- **Jump tables checked on another register** (`jump_offsets`): [Offset jump tables with the bounds check on another register](../../../docs/reference/rewriter.md#offset-jump-tables-with-the-bounds-check-on-another-register).
 - **Racy crashes under CPU load and observation gates**: [05, Racy crashes](../../../docs/agents/05-debugging.md#racy-crashes-load-trace-gates).
 
 ## Open

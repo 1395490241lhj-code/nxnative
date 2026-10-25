@@ -17,7 +17,7 @@ No `pad_layout` key: the iPhone gamepad starts in the 2D layout ([README](../../
 
 ## Memory
 
-- The NPDM declares 16 MB of system resource (virtual address memory), and `main` never calls `SetMemoryHeapSize`: everything lives in address regions of the alias region. `profile_guess.py` gives every game with an NPDM system resource the 5 GB block, and this game came out right with it ([03, Memory and address space](../../../docs/agents/03-bringup.md#memory-and-address-space)).
+- The NPDM declares 16 MB of system resource (virtual address memory), and `main` never calls `SetMemoryHeapSize`: everything lives in address regions of the alias region. `profile_guess.py` gives every game with an NPDM system resource the 5 GB block, and this game came out right with it ([Unity 6 takes its memory with no StandardAllocator and no heap](../../../docs/reference/memory.md#unity-6-takes-its-memory-with-no-standardallocator-and-no-heap)).
 - **Resolved: `nn::diag` abort at `sdk+0x12dad0` in `nninitStartup`, called from `main+0x756310`.** That is malloc's `StandardAllocator::Initialize(nullptr, 0xa00000000)`: 40 GB of address space (`main+0x28bff4`; `nninitStartup` is at `main+0x1b54d0`, the call goes through `main+0x7562d0`).
 - How the needs were measured: one boot on the Mac with a 64 GB alias region (`mem_reserve 0x1030000000`, `mem_alias 0x1008000000`), probing `VammManager::AllocateAddressRegion`'s success path (`sdk+0x13bf8c`: x21 size, x22 address) with `DM_SVC=1`'s map log. The regions, from boot into the first level:
   - malloc's: 2.19 GB used, 1.75 GB of it FNA3D's GPU heap, allocated whole at `FNA3D_CreateDevice` (`main+0xc03660` → `main+0x563370`); its blocks reach 332 MB from the region's start and 1.82 GB from its end, and no more after the title. The cut gives it 2.5 GB, 300 MB to spare.
@@ -41,7 +41,7 @@ The effects (`.xnb`) are XNA's D3D9 effects (MOJOSHADER is linked in and parses 
 ## Code
 
 - **Resolved: `RuntimeError: 788 ldr x18, #0xd1eb0` in `patch_nso.py`.** The text segment starts with 1.7 MB of data (`main+0x0`–`+0x1b5000`, high-entropy, no FDE covers it, and no `adrp` or relocation points into it): 62% of its words do not decode, and 6,858 of the rest read as instructions that use `x18`, plus three "`svc`" words with numbers such as `#0x91e7`. The linear sweep rewrote them all. `dm/tools/nso_code.py` finds such data blocks (a stretch of at least 4 KB between the `.eh_frame` FDE ranges in which more than a quarter of the words do not decode); the sweep skips them (`DATA_BLOCKS`, logged as `data blocks left alone`), and so does `insn_census.py`, whose counts then match the rewriter's again (11,744 `x18` sites in this `main`). Code without unwind information is still swept: it decodes (zlib at `main+0x75261c`, libunwind's register restore at `main+0x28dbd4`).
-- Padding halfword jump tables only to their largest entry (`half_count`) changed one to six tables in this `main`, as in a few other games' ([03, Rewriter](../../../docs/agents/03-bringup.md#rewriter)).
+- Padding halfword jump tables only to their largest entry (`half_count`) changed one to six tables in this `main`, as in a few other games' ([Halfword jump table landing pads sized to the largest entry](../../../docs/reference/rewriter.md#halfword-jump-table-landing-pads-sized-to-the-largest-entry)).
 
 ## Services
 
@@ -58,14 +58,14 @@ The effects (`.xnb`) are XNA's D3D9 effects (MOJOSHADER is linked in and parses 
 
 General host changes first needed here; each applies to every game:
 
-- **Data blocks at the start of the text left alone** (`nso_code.py`, `DATA_BLOCKS`): [03, Rewriter](../../../docs/agents/03-bringup.md#rewriter).
-- **`getenv` answered from the profile** (`game_env`, `hle_os.c`) and **the 32 MB alignment cut for large regions on SDK 18**, later taken by Paper Mario: The Thousand-Year Door's and Celeste's SDK 15.3.2 build: [03, Memory and address space](../../../docs/agents/03-bringup.md#memory-and-address-space).
-- **`vi::CreateLayer` with a size**, **AudioIn absent**, **online SDK NROs refused** (`ONLINE_SDKS`), **`nso_syms.py host_hooks` reading `dm/gfx`**, **NVIDIA's GPU drivers never loaded** (`GPU_DRIVERS`): [03, Services and SDK](../../../docs/agents/03-bringup.md#services-and-sdk).
-- **H.264 decoders made at `Configure` switched to RGBA** (`md_avc_open`): same section.
-- **Viewport swizzles** (`OP_VP_SWIZZLE`): [04, Seen in Absolum](../../../docs/agents/04-graphics.md#seen-in-absolum).
-- **GLSLC outputs in loose RomFS files**: [04, section 1](../../../docs/agents/04-graphics.md#1-find-every-shader-container).
+- **Data blocks at the start of the text left alone** (`nso_code.py`, `DATA_BLOCKS`): [Data blocks at the start of the text](../../../docs/reference/rewriter.md#data-blocks-at-the-start-of-the-text).
+- **`getenv` answered from the profile** (`game_env`, `hle_os.c`) and **the 32 MB alignment cut for large regions on SDK 18**, later taken by Paper Mario: The Thousand-Year Door's and Celeste's SDK 15.3.2 build: [.NET NativeAOT malloc and the GC region range](../../../docs/reference/memory.md#net-nativeaot-malloc-and-the-gc-region-range), [1 GB alignment of regions of 1 GB and more](../../../docs/reference/memory.md#1-gb-alignment-of-regions-of-1-gb-and-more).
+- **`vi::CreateLayer` with a size**, **AudioIn absent**, **online SDK NROs refused** (`ONLINE_SDKS`), **`nso_syms.py host_hooks` reading `dm/gfx`**, **NVIDIA's GPU drivers never loaded** (`GPU_DRIVERS`): [`vi::CreateLayer` with the layer's size](../../../docs/reference/services.md#vicreatelayer-with-the-layers-size), [No audio input devices](../../../docs/reference/audio.md#no-audio-input-devices), [Online SDKs in NROs are never loaded](../../../docs/reference/services.md#online-sdks-in-nros-are-never-loaded), [Listing a game's unhooked imports before they are met](../../../docs/reference/services.md#listing-a-games-unhooked-imports-before-they-are-met), [GPU driver modules that are never loaded](../../../docs/reference/services.md#gpu-driver-modules-that-are-never-loaded).
+- **H.264 decoders made at `Configure` switched to RGBA** (`md_avc_open`): [Parameter sets in `Configure` made the H.264 decoder without RGBA](../../../docs/reference/movies.md#parameter-sets-in-configure-made-the-h264-decoder-without-rgba).
+- **Viewport swizzles** (`OP_VP_SWIZZLE`): [Viewport swizzles applied as a flipped viewport](../../../docs/reference/rendering.md#viewport-swizzles-applied-as-a-flipped-viewport).
+- **GLSLC outputs in loose RomFS files**: [GLSLC outputs in main and in loose files](../../../docs/reference/shaders.md#glslc-outputs-in-main-and-in-loose-files).
 
 ## Open
 
 - Shader counts differ: development.md says 162 GLSLC outputs in `shaders.nx.bin`; 04 and `dm/games/README.md` say 163 outputs (162 unique).
-- Loading online SDKs: always load, refuse them (as now), or decide per profile is an open question for the maintainer ([03, Services and SDK](../../../docs/agents/03-bringup.md#services-and-sdk)).
+- Loading online SDKs: always load, refuse them (as now), or decide per profile is an open question for the maintainer ([Online SDKs in NROs are never loaded](../../../docs/reference/services.md#online-sdks-in-nros-are-never-loaded)).

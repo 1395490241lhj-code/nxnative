@@ -48,7 +48,7 @@ On the Mac: the boot, the Bink opening movie, the title, Nell's introduction, a 
 
 ## Found on this game
 
-- **Shader control sections loose in `main`** (`shader_split.py` `raw_shaders`): [04, Find every shader container](../../../docs/agents/04-graphics.md#1-find-every-shader-container).
-- **`sdk` node-area and 1 GB alignment cuts in the `orr` form** of the SDK 7 / 8 constructor: [03, Memory and address space](../../../docs/agents/03-bringup.md#memory-and-address-space).
+- **Shader control sections loose in `main`** (`shader_split.py` `raw_shaders`): [Loose control sections and code areas in `main` (Bink 2)](../../../docs/reference/shaders.md#loose-control-sections-and-code-areas-in-main-bink-2).
+- **`sdk` node-area and 1 GB alignment cuts in the `orr` form** of the SDK 7 / 8 constructor: [The SDK's address-region node area](../../../docs/reference/memory.md#the-sdks-address-region-node-area), [1 GB alignment of regions of 1 GB and more](../../../docs/reference/memory.md#1-gb-alignment-of-regions-of-1-gb-and-more).
 - **The heap check's 1 GB pool is too small here**: [dm/games/README.md, Adding a game](../README.md#adding-a-game).
 - The spin-wait search's store rule takes one wider loop in its `main`: [development.md, Power](../../../docs/development.md#power).

@@ -47,9 +47,9 @@ Update 1.0.30000 (v655360) over the base game, SDK 20.5.8. Unity 6000.0.50f1 IL2
 
 General host changes first needed here; each applies to every game:
 
-- **`hid::GetDebugPadStates`**, the history form (`hle_hid.c`): [03, Services and SDK](../../../docs/agents/03-bringup.md#services-and-sdk).
-- **Unity 6 memory with no StandardAllocator and no heap**, and the NSP script's 5 GB block for every game with an NPDM system resource (`profile_guess.py`): [03, Memory and address space](../../../docs/agents/03-bringup.md#memory-and-address-space), [dm/games/README.md, Adding a game](../README.md#adding-a-game).
-- **Unity 6 `Shader` objects** read from the bundles' own type trees: [04, Find every shader container](../../../docs/agents/04-graphics.md#1-find-every-shader-container).
+- **`hid::GetDebugPadStates`**, the history form (`hle_hid.c`): [History reads fill every requested entry](../../../docs/reference/services.md#history-reads-fill-every-requested-entry).
+- **Unity 6 memory with no StandardAllocator and no heap**, and the NSP script's 5 GB block for every game with an NPDM system resource (`profile_guess.py`): [Unity 6 takes its memory with no StandardAllocator and no heap](../../../docs/reference/memory.md#unity-6-takes-its-memory-with-no-standardallocator-and-no-heap), [dm/games/README.md, Adding a game](../README.md#adding-a-game).
+- **Unity 6 `Shader` objects** read from the bundles' own type trees: [Unity 6 Shader objects](../../../docs/reference/shaders.md#unity-6-shader-objects).
 
 ## Open
 

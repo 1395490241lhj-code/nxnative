@@ -53,10 +53,10 @@ No `pad_layout` key (the iPhone pad starts in the 3D layout).
 
 General host changes first needed here; each applies to every game:
 
-- **NRO modules loaded at run time:** collected by the NRRs' SHA-256s (`nro_collect.py`, `nro.tsv`), rewritten (`patch_nso.py` reads NROs), mapped at start and activated by `nn::ro::LoadModule` / `UnloadModule` (`loader.c` "NRO modules", `hle_ro.c`; `DM_NRO=0` turns it off), embedded on iOS (`gen_embed.py`, `nro_pieces`): [03, Services and SDK](../../../docs/agents/03-bringup.md#services-and-sdk), [development.md, The packing script in detail](../../../docs/development.md#the-packing-script-in-detail).
-- **Register copies followed back to a jump table's base** (`copied_base`): [03, Rewriter](../../../docs/agents/03-bringup.md#rewriter).
-- **`nvnSetExternalDebuggerEnabledNVX`** as a no-op (`names.txt`, `NVN_NOPROTO`): [03, Services and SDK](../../../docs/agents/03-bringup.md#services-and-sdk).
-- **The residency set committed at present** (`present_now` → `res_commit`): [04, Seen in Super Smash Bros. Ultimate](../../../docs/agents/04-graphics.md#seen-in-super-smash-bros-ultimate).
+- **NRO modules loaded at run time:** collected by the NRRs' SHA-256s (`nro_collect.py`, `nro.tsv`), rewritten (`patch_nso.py` reads NROs), mapped at start and activated by `nn::ro::LoadModule` / `UnloadModule` (`loader.c` "NRO modules", `hle_ro.c`; `DM_NRO=0` turns it off), embedded on iOS (`gen_embed.py`, `nro_pieces`): [Loading NROs with `ro::LoadModule`](../../../docs/reference/services.md#loading-nros-with-roloadmodule), [development.md, The packing script in detail](../../../docs/development.md#the-packing-script-in-detail).
+- **Register copies followed back to a jump table's base** (`copied_base`): [Far table base passed through other registers](../../../docs/reference/rewriter.md#far-table-base-passed-through-other-registers).
+- **`nvnSetExternalDebuggerEnabledNVX`** as a no-op (`names.txt`, `NVN_NOPROTO`): [Extensions fetched by name and called unchecked](../../../docs/reference/nvn-objects.md#extensions-fetched-by-name-and-called-unchecked).
+- **The residency set committed at present** (`present_now` → `res_commit`): [The residency set committed before a present](../../../docs/reference/rendering.md#the-residency-set-committed-before-a-present).
 - **The indexed archive reader** (`smash_arc.py`, `smash_arc_jobs`): [01, Compressed RomFS content](../../../docs/agents/01-extract.md#compressed-romfs-content).
 
 ## Open

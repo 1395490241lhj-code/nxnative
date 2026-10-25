@@ -45,7 +45,7 @@ The provisional profile's guesses held.
 
 General host changes first needed here (PR #120, before this profile's change); each applies to every game:
 
-- **Compressed XNB** decompressed before the MGFX reader (`xnb_decompress` in `shader_split.py`): [04, Find every shader container](../../../docs/agents/04-graphics.md#1-find-every-shader-container).
+- **Compressed XNB** decompressed before the MGFX reader (`xnb_decompress` in `shader_split.py`): [MGFX effects in MonoGame XNB files](../../../docs/reference/shaders.md#mgfx-effects-in-monogame-xnb-files).
 - **The Mac software keyboard's text box** releases the buttons that opened it and stays up below the minimum length (`front_mac.m`): described in [Input](#input) above.
 - **Spin waits through stores** (`patch_nso.py` "Spin waits"): one more loop in this game's `main`: [development.md, Power](../../../docs/development.md#power).
 

@@ -41,7 +41,7 @@ No `patches.py`, no `dm/tools/sdk_patches.py` cut for its `sdk` build (`3ae34e68
 
 General host changes first needed here; each applies to every game:
 
-- **GLSLC captures only when a module defines `glslcCompile`** (`shader_split.py`, as `profile_guess.py`): [04, Seen in Captain Toad](../../../docs/agents/04-graphics.md#seen-in-captain-toad-treasure-tracker).
+- **GLSLC captures only when a module defines `glslcCompile`** (`shader_split.py`, as `profile_guess.py`): [Built-in shaders compiled with the game's own GLSLC](../../../docs/reference/shaders.md#built-in-shaders-compiled-with-the-games-own-glslc).
 - **Routes planned from a position probe and the stage map**: [05, Scripted input and thread scheduling](../../../docs/agents/05-debugging.md#scripted-input-and-thread-scheduling).
 
 ## Open

@@ -40,13 +40,13 @@ Update 1.3.7 (v655360) over the base game; its DLC (The Delicious Last Course) i
 
 General host changes first needed here; each applies to every game:
 
-- **A size the hardware never reports as 0 is never 0 on the host** (`zcull_size`): [03, NVN object sizes](../../../docs/agents/03-bringup.md#nvn-object-sizes-memory-corruption).
+- **A size the hardware never reports as 0 is never 0 on the host** (`zcull_size`): [Sizes the hardware never reports as 0 (ZCull save area)](../../../docs/reference/nvn-objects.md#sizes-the-hardware-never-reports-as-0-zcull-save-area).
 - **Overlapping copies in the pass dump** as the sign of a broken game allocator: [05, Intermittent rendering glitches](../../../docs/agents/05-debugging.md#intermittent-rendering-glitches).
 - **`mem_used`** for rewritten modules over 64 MB, which the NSP script now sets after the rewrite: [dm/games/README.md, Keys](../README.md#keys) and [Adding a game](../README.md#adding-a-game).
-- **Unity 2017.4 serialized and `Shader` formats** (`unityfs.py`, `shader_split.py`) and the rewriter's jump-table form (`patch_nso.py`), by armyja: [04, Find every shader container](../../../docs/agents/04-graphics.md#1-find-every-shader-container), [03, Rewriter](../../../docs/agents/03-bringup.md#rewriter).
+- **Unity 2017.4 serialized and `Shader` formats** (`unityfs.py`, `shader_split.py`) and the rewriter's jump-table form (`patch_nso.py`), by armyja: [shaders.md, Containers by engine](../../../docs/reference/shaders.md#containers-by-engine), [Offset jump tables with the bounds check on another register](../../../docs/reference/rewriter.md#offset-jump-tables-with-the-bounds-check-on-another-register).
 
 ## Open
 
 - "SDK 5.5.0 (the oldest so far)" in `game.tsv` and docs/development.md is stale: DARK SOULS: REMASTERED (4.5.0) and Mario Kart 8 Deluxe (4.4.0) are older.
-- The tracing text in [03](../../../docs/agents/03-bringup.md#nvn-object-sizes-memory-corruption) names observation gates "in its `patches.py`"; the profile has no `patches.py` now.
+- The tracing text in [nvn-objects.md](../../../docs/reference/nvn-objects.md#sizes-the-hardware-never-reports-as-0-zcull-save-area) names observation gates "in its `patches.py`"; the profile has no `patches.py` now.
 - `game.tsv` has no `sys_resource` row, so the host reports its default, 32 MB (`game.py`, `hle_svc.c`), although the NPDM declares none and the notes describe the game as having no virtual address memory. Not checked against the game's behaviour.

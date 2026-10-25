@@ -41,9 +41,9 @@ One BNSH, `shader/shader_NX.bnsh` (2 vertex and 33 pixel shaders, all 2D), with 
 
 General host changes first needed here; each applies to every game:
 
-- **Initial content of `CPU_NO_ACCESS` pools** (`tex_init_fill`) and **linear textures in any pool** (`tex_linear`): [04, Seen in Rhythm Heaven Groove](../../../docs/agents/04-graphics.md#seen-in-rhythm-heaven-groove).
-- **Truncated automatic block height** (`pick_tile(ah * 3 / 16)` in `nvn_tex.c`): same section, and [04, Seen in Tears of the Kingdom](../../../docs/agents/04-graphics.md#seen-in-the-legend-of-zelda-tears-of-the-kingdom).
-- **SDK 21's DSP command list without magic** (`capture` in `hle_audren.c`), **`pl::GetSharedFont`** for every font at once (`hle_sdk16.c`) and **`vi::GetDefaultDisplayPanelIdentifier`** (`hle_vi.c`): [03, Services and SDK](../../../docs/agents/03-bringup.md#services-and-sdk).
+- **Initial content of `CPU_NO_ACCESS` pools** (`tex_init_fill`) and **linear textures in any pool** (`tex_linear`): [A pool's storage at creation is its textures' content](../../../docs/reference/nvn-objects.md#a-pools-storage-at-creation-is-its-textures-content), [Linear textures in CPU-visible pools](../../../docs/reference/nvn-objects.md#linear-textures-in-cpu-visible-pools).
+- **Truncated automatic block height** (`pick_tile(ah * 3 / 16)` in `nvn_tex.c`): [Automatic block height truncates](../../../docs/reference/rendering.md#automatic-block-height-truncates).
+- **SDK 21's DSP command list without magic** (`capture` in `hle_audren.c`), **`pl::GetSharedFont`** for every font at once (`hle_sdk16.c`) and **`vi::GetDefaultDisplayPanelIdentifier`** (`hle_vi.c`): [SDK 21 DSP command header without a magic](../../../docs/reference/audio.md#sdk-21-dsp-command-header-without-a-magic), [Shared fonts requested all at once](../../../docs/reference/services.md#shared-fonts-requested-all-at-once), [Default display panel identifier](../../../docs/reference/services.md#default-display-panel-identifier).
 - **`perf_mode`** (Boost whatever the operation mode, `hle_oe.c`): [dm/games/README.md, Keys](../README.md#keys).
 
 ## Open

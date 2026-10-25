@@ -58,11 +58,11 @@ Mac repro of both: `DM_OE_SCRIPT=bg=1@20,bg=0@25`. The game froze after switchin
 
 General host changes first needed here; each applies to every game:
 
-- **`precise::` min / max / clamp** in every translator (`dmsh_build.py` `precise`, `vk_shaders.py`, `gl_shaders.py`; issue 72): [04, Other per-title surprises seen in Mario](../../../docs/agents/04-graphics.md#6-other-per-title-surprises-seen-in-mario).
-- **Vulkan descriptors hold the Metal objects** (issue 68): [04, Seen in Super Mario Galaxy (Vulkan)](../../../docs/agents/04-graphics.md#seen-in-super-mario-galaxy-vulkan).
-- **Vulkan acquire and the vsync event thread follow the display link** (`mtl_link_wait_tick`, `mtl_link_wait_vsync`): [03, Frame rate](../../../docs/agents/03-bringup.md#frame-rate).
-- **Focus message 15 only under focus handling modes 1 and 2** (`hle_oe.c`) and **the guest clock waits in the background** (`guest_clock_read_wait`): [03, Services and SDK](../../../docs/agents/03-bringup.md#services-and-sdk).
-- **A yield whose callee-saved registers moved counts as progress** (`thr_yield`; this game's poll keeps them): [03, Threads](../../../docs/agents/03-bringup.md#threads).
+- **`precise::` min / max / clamp** in every translator (`dmsh_build.py` `precise`, `vk_shaders.py`, `gl_shaders.py`; issue 72): [min, max and clamp with a NaN operand](../../../docs/reference/shaders.md#min-max-and-clamp-with-a-nan-operand).
+- **Vulkan descriptors hold the Metal objects** (issue 68): [Descriptors hold the Metal objects they were written with](../../../docs/reference/rendering.md#descriptors-hold-the-metal-objects-they-were-written-with).
+- **Vulkan acquire and the vsync event thread follow the display link** (`mtl_link_wait_tick`, `mtl_link_wait_vsync`): [Vulkan acquire and vsync event follow the display link](../../../docs/reference/frame-rate.md#vulkan-acquire-and-vsync-event-follow-the-display-link).
+- **Focus message 15 only under focus handling modes 1 and 2** (`hle_oe.c`) and **the guest clock waits in the background** (`guest_clock_read_wait`): [Focus handling mode decides whether focus changes are notified](../../../docs/reference/services.md#focus-handling-mode-decides-whether-focus-changes-are-notified), [Guest clock reads wait while the app is in the background](../../../docs/reference/services.md#guest-clock-reads-wait-while-the-app-is-in-the-background).
+- **A yield whose callee-saved registers moved counts as progress** (`thr_yield`; this game's poll keeps them): [Yields that make progress return at once](../../../docs/reference/threads.md#yields-that-make-progress-return-at-once-thr_yield).
 
 ## Open
 

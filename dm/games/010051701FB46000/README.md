@@ -64,11 +64,11 @@ Update 1.1.1 (v131072) over the base game, SDK 18.3.5. Unity 2022.3.54f1 IL2CPP 
 
 General host changes first needed here; each applies to every game:
 
-- **`svcGetInfo` type 24, FreeThreadCount** (`thr_limit_used`): [03, Threads](../../../docs/agents/03-bringup.md#threads).
-- **Movie decoder output slots per decoder kind** (`MD_NOUT`, `MD_NOUT_AAC`, `MD_NOUT_VIDEO`): [03, Services and SDK](../../../docs/agents/03-bringup.md#services-and-sdk).
+- **`svcGetInfo` type 24, FreeThreadCount** (`thr_limit_used`): [Free thread count (`svcGetInfo` type 24)](../../../docs/reference/threads.md#free-thread-count-svcgetinfo-type-24).
+- **Movie decoder output slots per decoder kind** (`MD_NOUT`, `MD_NOUT_AAC`, `MD_NOUT_VIDEO`): [Output slot counts per decoder kind](../../../docs/reference/movies.md#output-slot-counts-per-decoder-kind), [Audio output slots for players that hold every output](../../../docs/reference/movies.md#audio-output-slots-for-players-that-hold-every-output).
 - **`nvnSyncSetDebugLabel`** as a no-op (no other source describes it).
-- **`ReadFile` re-prepared on EFAULT** against the dirty-page tracker (`h_fs_ReadFile`): [03, Services and SDK](../../../docs/agents/03-bringup.md#services-and-sdk).
-- **Unity `ComputeShader` objects** (`unity_compute`, `COMPUTE_2022_3`): [04, Find every shader container](../../../docs/agents/04-graphics.md#1-find-every-shader-container).
+- **`ReadFile` re-prepared on EFAULT** against the dirty-page tracker (`h_fs_ReadFile`): [ReadFile into write-protected texture pool pages](../../../docs/reference/services.md#readfile-into-write-protected-texture-pool-pages).
+- **Unity `ComputeShader` objects** (`unity_compute`, `COMPUTE_2022_3`): [Unity ComputeShader objects](../../../docs/reference/shaders.md#unity-computeshader-objects).
 - **`present_interval display`** for a game that steps by frame time: [dm/games/README.md, Keys](../README.md#keys).
 - The spin-wait search takes the movie library's thread loop wider in this game's `subsdk0`: [development.md, Power](../../../docs/development.md#power).
 

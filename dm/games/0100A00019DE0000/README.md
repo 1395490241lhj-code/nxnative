@@ -41,7 +41,7 @@ Base game v0 (the NACP's display version is 0.0.126424), SDK 19.3.9. Supergiant 
 General host changes first needed here; each applies to every game:
 
 - **Combined texture slots past 31** (the combined table up to 0x168, 41 slots, sharing words with the image table; a bound texture written there when the image slot is unbound): [04, Find the binding layout by census](../../../docs/agents/04-graphics.md#3-find-the-binding-layout-by-census).
-- **The SDK 19 `nn::ro::LoadModule` form** and `ro::Finalize` hooked (`hle_ro.c`): [03, Services and SDK](../../../docs/agents/03-bringup.md#services-and-sdk).
+- **The SDK 19 `nn::ro::LoadModule` form** and `ro::Finalize` hooked (`hle_ro.c`): [`nn::ro` and its port](../../../docs/reference/services.md#nnro-and-its-port).
 
 ## Open
 

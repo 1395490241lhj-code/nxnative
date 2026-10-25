@@ -44,8 +44,8 @@ Update 1.1.3 (v851968) over the base game, with its four DLC. SDK 17.5.3 (Ace At
 General host changes first needed here; each applies to every game:
 
 - **Multi-program updates:** `nx_extract` takes program index 0's NCAs: [01, Compressed RomFS content](../../../docs/agents/01-extract.md#compressed-romfs-content).
-- **The newer RDB** (`.fdata`, `idrk_data`): [04, section 1](../../../docs/agents/04-graphics.md#1-find-every-shader-container).
-- **`OpenAudioRenderer` calling its no-event form through the PLT** (`t_in_open` in `hle_audren.c`): [03, Audio](../../../docs/agents/03-bringup.md#audio).
+- **The newer RDB** (`.fdata`, `idrk_data`): [G2S containers in KTGL RDB archives](../../../docs/reference/shaders.md#g2s-containers-in-ktgl-rdb-archives).
+- **`OpenAudioRenderer` calling its no-event form through the PLT** (`t_in_open` in `hle_audren.c`): [The SDK's open with an event calls the open without one (`t_in_open`)](../../../docs/reference/audio.md#the-sdks-open-with-an-event-calls-the-open-without-one-t_in_open).
 
 ## Open
 

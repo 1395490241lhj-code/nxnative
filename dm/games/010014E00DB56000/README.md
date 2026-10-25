@@ -13,7 +13,7 @@ On the Mac: the logos, the title, the privacy policy, the DigiLab story choice, 
 | 4 GB layout: `mem_reserve 0x100000000`, `mem_alias 0x10000000`, `mem_stack 0x10000000`, `app_pool 0xCD500000` | `game.tsv` | the 4 GB layout of the games without virtual address memory |
 | `mem_used 0x4a00000` (74 MB) | `game.tsv` | the rewritten modules are larger than the default 64 MB of used memory |
 | No NVN shader tables | `game.tsv` `shader_note` | no NVN shaders: `gl_shaders.py` writes the GL library and its table, not the profile |
-| The GL path | `main`'s imports | `profile_guess.py` gives `graphics gl` when `main` imports `eglCreateWindowSurface` and names `glShaderSource`; of the 22 games extracted ([04](../../../docs/agents/04-graphics.md#seen-in-digimon-story-cyber-sleuth-complete-edition-opengl) says), only Digimon does |
+| The GL path | `main`'s imports | `profile_guess.py` gives `graphics gl` when `main` imports `eglCreateWindowSurface` and names `glShaderSource`; of the 22 games extracted ([rendering.md](../../../docs/reference/rendering.md#telling-a-gl-game-from-an-nvn-or-vulkan-one) says), only Digimon does |
 | glslang | packing | for a GL game the NSP script runs `gl_shaders.py` in place of the NVN shader split and chain build (Mac and iOS libraries in `<id>_build/shader/gl` and `shader/ios/gl`); it needs `brew install glslang` |
 
 No `pad_layout`: the virtual gamepad starts in the 2D layout (the default).
@@ -59,10 +59,10 @@ SDK 6.4.0 boots, one each:
 
 General host changes first needed here; each applies to every game:
 
-- **The OpenGL layer** (`dm/gfx/gl/hle_gl.m`: EGL, GL on Metal, `mtl_set_origin_lower_left`, `mtl_ext_tex` presents) and **offline GLSL translation** (`dm/gfx/tools/gl_shaders.py`: glslang `-V -R`, SPIRV-Cross, varyings matched by name, `--fixup-clipspace`; `DM_GL_CAPTURE`): [04, Seen in Digimon Story Cyber Sleuth](../../../docs/agents/04-graphics.md#seen-in-digimon-story-cyber-sleuth-complete-edition-opengl).
+- **The OpenGL layer** (`dm/gfx/gl/hle_gl.m`: EGL, GL on Metal, `mtl_set_origin_lower_left`, `mtl_ext_tex` presents) and **offline GLSL translation** (`dm/gfx/tools/gl_shaders.py`: glslang `-V -R`, SPIRV-Cross, varyings matched by name, `--fixup-clipspace`; `DM_GL_CAPTURE`): [Games that render with desktop OpenGL through EGL](../../../docs/reference/rendering.md#games-that-render-with-desktop-opengl-through-egl), [GLSL source translated offline and found by hash](../../../docs/reference/rendering.md#glsl-source-translated-offline-and-found-by-hash).
 - **MVGL archives** (`dm/gfx/tools/mvgl.py`).
 - **Loader census** (`dm/tools/loader_census.py`) and the `graphics gl` guess in `profile_guess.py`: [02, NVN surface](../../../docs/agents/02-survey.md#nvn-surface).
-- **Add-on content queries on the big host stack** (`HLE_FORCE_BIG`): [03, Services and SDK](../../../docs/agents/03-bringup.md#services-and-sdk).
+- **Add-on content queries on the big host stack** (`HLE_FORCE_BIG`): [Add-on content queries on a small guest stack](../../../docs/reference/services.md#add-on-content-queries-on-a-small-guest-stack).
 
 ## Open
 

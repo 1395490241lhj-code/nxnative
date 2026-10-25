@@ -46,11 +46,11 @@ Game-specific findings. The general host changes they led to are listed under [F
 
 ## Command memory
 
-- **Resolved (issue #61): `CRASH sig=10` in `mtl_exec` after minutes of play**, the fault address equal to `x19` and shaped like `0x1000000003`. The game gives each model's prerecorded lists fixed slots of the size a recording of that list measured (`GetCommandMemoryUsed`), slot k at base + size × k, and passes `AddCommandMemory` max(size, 512) (`main+0xbb120`); its memory callback is empty. A JUMP the host wrote after a 496-byte list reached 8 bytes into the next slot. The host now never writes past what `GetCommandMemoryUsed` reported (`OP_RESERVE`, [03, Services and SDK](../../../docs/agents/03-bringup.md#services-and-sdk)).
+- **Resolved (issue #61): `CRASH sig=10` in `mtl_exec` after minutes of play**, the fault address equal to `x19` and shaped like `0x1000000003`. The game gives each model's prerecorded lists fixed slots of the size a recording of that list measured (`GetCommandMemoryUsed`), slot k at base + size × k, and passes `AddCommandMemory` max(size, 512) (`main+0xbb120`); its memory callback is empty. A JUMP the host wrote after a 496-byte list reached 8 bytes into the next slot. The host now never writes past what `GetCommandMemoryUsed` reported (`OP_RESERVE`, [Prerecorded lists in slots of their measured size](../../../docs/reference/nvn-objects.md#prerecorded-lists-in-slots-of-their-measured-size)).
 
 ## Services
 
-- SDK 20 calls it needed (each aborted in `sm::Initialize` or read a null applet proxy, one per boot): `oe::GetPreviousProgramIndex`, the hardware Opus decoder's C interface, cache storage, `fs::IsSaveDataExisting` for another title (it asks for Breath of the Wild's save: none), `MountSaveDataReadOnly`, `time::ClockSnapshot::CreateWithStandardSystemClock` ([03, Services and SDK](../../../docs/agents/03-bringup.md#services-and-sdk)).
+- SDK 20 calls it needed (each aborted in `sm::Initialize` or read a null applet proxy, one per boot): `oe::GetPreviousProgramIndex`, the hardware Opus decoder's C interface, cache storage, `fs::IsSaveDataExisting` for another title (it asks for Breath of the Wild's save: none), `MountSaveDataReadOnly`, `time::ClockSnapshot::CreateWithStandardSystemClock` ([Applet resource user ID, launch parameters and VR mode](../../../docs/reference/services.md#applet-resource-user-id-launch-parameters-and-vr-mode), [Hardware Opus decoders](../../../docs/reference/audio.md#hardware-opus-decoders-built-on-the-sdks-software-decoders), [Cache storage and other titles' save data](../../../docs/reference/services.md#cache-storage-and-other-titles-save-data), [Steady clock, clock snapshots and user clocks](../../../docs/reference/services.md#steady-clock-clock-snapshots-and-user-clocks)).
 - `main` imports `nn::ro` (it loads NRO modules at run time).
 - Focus handling mode 2 (focus notifications are sent).
 
@@ -68,10 +68,10 @@ Game-specific findings. The general host changes they led to are listed under [F
 
 General host changes first needed here; each applies to every game:
 
-- **Conditional rendering** evaluated at replay (`OP_RENDER_COND`, profile key `render_cond`) and **CPU-written textures with no flush** (`tex_dirty_upload`, `ft_add`): [04, Seen in Tears of the Kingdom](../../../docs/agents/04-graphics.md#seen-in-the-legend-of-zelda-tears-of-the-kingdom).
+- **Conditional rendering** evaluated at replay (`OP_RENDER_COND`, profile key `render_cond`) and **CPU-written textures with no flush** (`tex_dirty_upload`, `ft_add`): [Conditional rendering evaluated at replay](../../../docs/reference/rendering.md#conditional-rendering-evaluated-at-replay), [CPU writes with no flush, caught by page protection](../../../docs/reference/nvn-objects.md#cpu-writes-with-no-flush-caught-by-page-protection-tex_dirty_upload).
 - **Mid-pass, partial-mask and partial-scissor clears** drawn as a triangle (`clear_color_tri` / `clear_ds_tri`), **8-bit indices widened on the GPU** when written in the same submission (`wide_run`), **`ReadTexels` from guest memory on any thread** with `nvn_ft_poll` marking textures written after first use, **attachment-less passes** (`bare_dims`): same section.
-- **Rewriter:** out-of-line atomic retry blocks (`retry_block` / `site_retry_window`, 8 sites) and jump tables relative to an `adr` (`jump_adr_offsets`, `main+0x393bb0`): [03, Rewriter](../../../docs/agents/03-bringup.md#rewriter).
-- **Slotted command lists** (`OP_RESERVE`, `t_nvn` "slotted lists"): [03, Services and SDK](../../../docs/agents/03-bringup.md#services-and-sdk).
+- **Rewriter:** out-of-line atomic retry blocks (`retry_block` / `site_retry_window`, 8 sites) and jump tables relative to an `adr` (`jump_adr_offsets`, `main+0x393bb0`): [Out-of-line retry blocks of atomic updates](../../../docs/reference/rewriter.md#out-of-line-retry-blocks-of-atomic-updates), [Offset tables relative to an adr](../../../docs/reference/rewriter.md#offset-tables-relative-to-an-adr).
+- **Slotted command lists** (`OP_RESERVE`, `t_nvn` "slotted lists"): [Prerecorded lists in slots of their measured size](../../../docs/reference/nvn-objects.md#prerecorded-lists-in-slots-of-their-measured-size).
 
 ## Open
 

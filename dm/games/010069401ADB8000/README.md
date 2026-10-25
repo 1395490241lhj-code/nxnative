@@ -25,7 +25,7 @@ No `patches.py`, no `pad_layout` (the iPhone pad starts in the 2D layout).
 
 ## Audio and services
 
-Each found by one boot ([03, Services and SDK](../../../docs/agents/03-bringup.md#services-and-sdk)):
+Each found by one boot ([Hardware Opus decoders built on the SDK's software decoders](../../../docs/reference/audio.md#hardware-opus-decoders-built-on-the-sdks-software-decoders), [Cryptographically random bytes](../../../docs/reference/services.md#cryptographically-random-bytes)):
 
 - **Resolved: abort in `sm::Initialize` under `nn::codec::GetHardwareOpusMultiStreamDecoderWorkBufferSize(int, int, int, int, int)`** (at `nnMain`, CRI's Opus streams). The host now has the C interface of the hardware multi-stream decoder, including the SDK 12+ overload with an option argument (Age of Calamity only needed the class and the four-argument size). Each call goes to the `sdk`'s software `OpusMultiStreamDecoder` C interface, with a host-held state per game object as for the single-stream decoder (`hle_codec.c`). `GetHardwareOpusMultiStreamDecoderProcessingTime` reports 0.
 - **Resolved: abort in `sm::Initialize` under `nn::crypto::GenerateCryptographicallyRandomBytes`** (`std::random_device` → the `sdk`'s own `getentropy` → `InitializeCsrng`). The `sdk` defines `getentropy`, so the host's `getentropy` hook never sees the call, but the call into `nn::crypto` goes through the `sdk`'s PLT. An `HLE_FORCE` on it fills from the host's entropy stream (`hle_os.c`).
@@ -49,7 +49,7 @@ Each found by one boot ([03, Services and SDK](../../../docs/agents/03-bringup.m
 General host changes first needed here; each applies to every game:
 
 - `alloc_big_align` was first needed on 13 Sentinels ([its note](../01003FC01670C000/README.md#memory), [the profile keys](../README.md#keys)).
-- **The hardware multi-stream Opus decoder's C interface** forwarded to the SDK's software decoder (`hle_codec.c`) and **`GenerateCryptographicallyRandomBytes` under the `sdk`'s own `getentropy`** (`HLE_FORCE`, `hle_os.c`): [03, Services and SDK](../../../docs/agents/03-bringup.md#services-and-sdk).
+- **The hardware multi-stream Opus decoder's C interface** forwarded to the SDK's software decoder (`hle_codec.c`) and **`GenerateCryptographicallyRandomBytes` under the `sdk`'s own `getentropy`** (`HLE_FORCE`, `hle_os.c`): [Hardware Opus decoders built on the SDK's software decoders](../../../docs/reference/audio.md#hardware-opus-decoders-built-on-the-sdks-software-decoders), [Cryptographically random bytes](../../../docs/reference/services.md#cryptographically-random-bytes).
 
 ## Open
 

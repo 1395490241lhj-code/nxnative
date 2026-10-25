@@ -55,10 +55,10 @@ On the Mac: a new game through Tom Nook's counter (name entry on the game's own 
 
 General host changes first needed here; each applies to every game:
 
-- **Halfword jump tables padded to their largest entry** (`half_count` in `patch_nso.py`): [03, Rewriter](../../../docs/agents/03-bringup.md#rewriter).
-- **Yields that make progress return at once** (`thr_yield` in `hle_thread.c`): [03, Threads](../../../docs/agents/03-bringup.md#threads) and [development.md, Power](../../../docs/development.md#power) ("Yield loops").
-- **The game's own HIPC clients answered by host sessions** (`hle_sf.c`, `DM_SF_TRACE`), **device save data and shared transactions** (`mount_ex`), **`fs::Commit` with a mount list or a `CommitOption`**, and the adjustable user clock, region code and SDK 20 album and steady-clock calls: [03, Services and SDK](../../../docs/agents/03-bringup.md#services-and-sdk).
-- **16 output slots for video movie decoders** (`MD_NOUT_VIDEO` in `hle_movie.c`): same section.
+- **Halfword jump tables padded to their largest entry** (`half_count` in `patch_nso.py`): [Halfword jump table landing pads sized to the largest entry](../../../docs/reference/rewriter.md#halfword-jump-table-landing-pads-sized-to-the-largest-entry).
+- **Yields that make progress return at once** (`thr_yield` in `hle_thread.c`): [Yields that make progress return at once (`thr_yield`)](../../../docs/reference/threads.md#yields-that-make-progress-return-at-once-thr_yield) and [development.md, Power](../../../docs/development.md#power) ("Yield loops").
+- **The game's own HIPC clients answered by host sessions** (`hle_sf.c`, `DM_SF_TRACE`), **device save data and shared transactions** (`mount_ex`), **`fs::Commit` with a mount list or a `CommitOption`**, and the adjustable user clock, region code and SDK 20 album and steady-clock calls: [Game-linked HIPC clients of system services](../../../docs/reference/services.md#game-linked-hipc-clients-of-system-services), [Device save data on the account save's directory](../../../docs/reference/services.md#device-save-data-on-the-account-saves-directory), [`fs::Commit` with a list of mounts](../../../docs/reference/services.md#fscommit-with-a-list-of-mounts), [Steady clock, clock snapshots and user clocks](../../../docs/reference/services.md#steady-clock-clock-snapshots-and-user-clocks), [Region code from the language](../../../docs/reference/services.md#region-code-from-the-language), [Album calls fail with no album](../../../docs/reference/services.md#album-calls-fail-with-no-album).
+- **16 output slots for video movie decoders** (`MD_NOUT_VIDEO` in `hle_movie.c`): [Video output slots: how far the extractor gets ahead](../../../docs/reference/movies.md#video-output-slots-how-far-the-extractor-gets-ahead).
 
 ## Open
 

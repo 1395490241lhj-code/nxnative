@@ -50,8 +50,8 @@ The cutscenes are MP4 files (`Movie/*.mp4`, H.264 1080p and AAC stereo) played t
 
 General host changes first needed here; each applies to every game:
 
-- **32 outputs for AAC movie decoders and one AAC frame from `GetOutputBufferSize`** (`MD_NOUT_AAC` in `hle_movie.c`): [03, Services and SDK](../../../docs/agents/03-bringup.md#services-and-sdk).
-- **Advanced blend modes** (`blend_st`, `adv_blend`): [04, Seen in Mario vs. Donkey Kong](../../../docs/agents/04-graphics.md#seen-in-mario-vs-donkey-kong).
+- **32 outputs for AAC movie decoders and one AAC frame from `GetOutputBufferSize`** (`MD_NOUT_AAC` in `hle_movie.c`): [AAC decoders offer at most 32 outputs](../../../docs/reference/movies.md#aac-decoders-offer-at-most-32-outputs), [AAC output buffer size is one frame](../../../docs/reference/movies.md#aac-output-buffer-size-is-one-frame).
+- **Advanced blend modes** (`blend_st`, `adv_blend`): [Advanced blend modes as Porter-Duff factors](../../../docs/reference/rendering.md#advanced-blend-modes-as-porter-duff-factors).
 - **A value filter for `DM_PROBE_POLL`** (`=<value>`, for a word that changes often before the bad store): [05, Probes without a debugger](../../../docs/agents/05-debugging.md#probes-without-a-debugger-dm_probe).
 
 ## Open

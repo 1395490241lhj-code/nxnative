@@ -48,10 +48,10 @@ The C# file API and the real-time clock reach the SDK's C library (nnmusl), not 
 
 General host changes first needed here; each applies to every game:
 
-- **Indirect tail calls through `x18`** (`tail_call` / `site_br_call`), tried only where the rewriter used to stop: [03, Rewriter](../../../docs/agents/03-bringup.md#rewriter).
-- **The SDK 17 C library's path checks** (`IsPathMounted` and the length-limit queries, `hle_fs.c`) and **the C library's real-time clock** (`hle_time.c`): [03, Services and SDK](../../../docs/agents/03-bringup.md#services-and-sdk).
-- **Node area cut for a Unity 2022 game with virtual address memory** (`StandardAllocator::Initialize(nullptr, pool − used)`): [03, Memory and address space](../../../docs/agents/03-bringup.md#memory-and-address-space).
-- **Unity 2022 `Shader` objects** (`unity_code_blobs`, no local keyword list in `unityfs.subprogram`): [04, Find every shader container](../../../docs/agents/04-graphics.md#1-find-every-shader-container).
+- **Indirect tail calls through `x18`** (`tail_call` / `site_br_call`), tried only where the rewriter used to stop: [Indirect tail calls through x18 in IL2CPP thunks](../../../docs/reference/rewriter.md#indirect-tail-calls-through-x18-in-il2cpp-thunks).
+- **The SDK 17 C library's path checks** (`IsPathMounted` and the length-limit queries, `hle_fs.c`) and **the C library's real-time clock** (`hle_time.c`): [C library path checks ask the file system's limits](../../../docs/reference/services.md#c-library-path-checks-ask-the-file-systems-limits), [`clock_gettime(CLOCK_REALTIME)` through the time source pointer](../../../docs/reference/services.md#clock_gettimeclock_realtime-through-the-time-source-pointer).
+- **Node area cut for a Unity 2022 game with virtual address memory** (`StandardAllocator::Initialize(nullptr, pool − used)`): [The SDK's address-region node area](../../../docs/reference/memory.md#the-sdks-address-region-node-area).
+- **Unity 2022 `Shader` objects** (`unity_code_blobs`, no local keyword list in `unityfs.subprogram`): [Unity 2022 Shader objects with parameter blobs](../../../docs/reference/shaders.md#unity-2022-shader-objects-with-parameter-blobs).
 
 ## Open
 

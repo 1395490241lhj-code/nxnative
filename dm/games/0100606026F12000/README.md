@@ -61,9 +61,9 @@ Status: brought up on the Mac: the first-boot brightness screen, the title, a ne
 
 General host changes first needed here; each applies to every game:
 
-- **UE 5.6's 32-slot FMalloc** (`hle_uemalloc.c` layout `UE5_6`): [03, Memory and address space](../../../docs/agents/03-bringup.md#memory-and-address-space).
-- **IoStore shader libraries read through the game's own Oodle with no boot** (`uepak.py` `Toc`, `io_archive`, `OodleHost`, `DM_OODLE_SERVE`): [01, Compressed RomFS content](../../../docs/agents/01-extract.md#compressed-romfs-content), [04, section 1](../../../docs/agents/04-graphics.md#1-find-every-shader-container).
-- **Rewriter:** text before the first FDE as one function (`func_of`) and long functions analysed in pieces (`pieces`): [03, Rewriter](../../../docs/agents/03-bringup.md#rewriter).
+- **UE 5.6's 32-slot FMalloc** (`hle_uemalloc.c` layout `UE5_6`): [Unreal's FMallocBinned3 replaced by the host allocator](../../../docs/reference/memory.md#unreals-fmallocbinned3-replaced-by-the-host-allocator).
+- **IoStore shader libraries read through the game's own Oodle with no boot** (`uepak.py` `Toc`, `io_archive`, `OodleHost`, `DM_OODLE_SERVE`): [01, Compressed RomFS content](../../../docs/agents/01-extract.md#compressed-romfs-content), [Unreal Engine 5.6 IoStore shader libraries](../../../docs/reference/shaders.md#unreal-engine-56-iostore-shader-libraries).
+- **Rewriter:** text before the first FDE as one function (`func_of`) and long functions analysed in pieces (`pieces`): [Code before the first unwind entry is one function](../../../docs/reference/rewriter.md#code-before-the-first-unwind-entry-is-one-function), [Long functions analysed in pieces](../../../docs/reference/rewriter.md#long-functions-analysed-in-pieces).
 
 ## Open
 

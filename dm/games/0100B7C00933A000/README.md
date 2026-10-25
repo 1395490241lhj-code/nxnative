@@ -58,9 +58,9 @@ Status: on the Mac, the boot, the title (a VP9 movie behind the logo), the main 
 
 General host changes first needed here; each applies to every game:
 
-- **A network request kept on hold for 50 ms** (`hle_net.c`, `nn::nifm`): [03, Services and SDK](../../../docs/agents/03-bringup.md#services-and-sdk).
-- **Rewriter:** an `adrp` re-encoded inside a copied exclusive window (`window_adrp`) and gates before a `ret` (`scratch_dead`): [03, Rewriter](../../../docs/agents/03-bringup.md#rewriter). Spin waits that store (`patch_nso.py` "Spin waits"): [development.md, Power](../../../docs/development.md#power).
-- **An Unreal engine region whose default is cut instead of capped by `game_args`**: [03, Memory and address space](../../../docs/agents/03-bringup.md#memory-and-address-space).
+- **A network request kept on hold for 50 ms** (`hle_net.c`, `nn::nifm`): [Network requests stay on hold before they settle](../../../docs/reference/services.md#network-requests-stay-on-hold-before-they-settle).
+- **Rewriter:** an `adrp` re-encoded inside a copied exclusive window (`window_adrp`) and gates before a `ret` (`scratch_dead`): [`adrp` inside an exclusive window](../../../docs/reference/rewriter.md#adrp-inside-an-exclusive-window), [Observation gates where x9–x17 are dead](../../../docs/reference/rewriter.md#observation-gates-where-x9x17-are-dead). Spin waits that store (`patch_nso.py` "Spin waits"): [development.md, Power](../../../docs/development.md#power).
+- **An Unreal engine region whose default is cut instead of capped by `game_args`**: [Unreal's engine address region and its options](../../../docs/reference/memory.md#unreals-engine-address-region-and-its-options).
 
 ## Open
 

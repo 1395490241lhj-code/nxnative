@@ -41,9 +41,9 @@ Update 1.0.1 (v65536) over the base game, SDK 13.3.7. Unity 2020.3.30f1 IL2CPP w
 
 General host changes first needed here; each applies to every game:
 
-- **The shared-font address is the TTF** unless the game is on SDK 11 or later and imports `ScalableFontEngineHelper::Decode` (`font_skip`, `dm_main_imports`): [03, Services and SDK](../../../docs/agents/03-bringup.md#services-and-sdk), [dm/games/README.md, Keys](../README.md#keys) (`shared_font`).
-- **Unity 2020.3's `Shader` layout written out** (`SHADER_2020_3`, `_SHADER_COMMON`): [04, Find every shader container](../../../docs/agents/04-graphics.md#1-find-every-shader-container).
-- **Finding the AddressRegionManager constructor on a new `sdk` build**: [03, Memory and address space](../../../docs/agents/03-bringup.md#memory-and-address-space).
+- **The shared-font address is the TTF** unless the game is on SDK 11 or later and imports `ScalableFontEngineHelper::Decode` (`font_skip`, `dm_main_imports`): [Shared font address: BFTTF header or bare TTF](../../../docs/reference/services.md#shared-font-address-bfttf-header-or-bare-ttf), [dm/games/README.md, Keys](../README.md#keys) (`shared_font`).
+- **Unity 2020.3's `Shader` layout written out** (`SHADER_2020_3`, `_SHADER_COMMON`): [Unity Shader layouts written out for players without bundles](../../../docs/reference/shaders.md#unity-shader-layouts-written-out-for-players-without-bundles).
+- **Finding the AddressRegionManager constructor on a new `sdk` build**: [The SDK's address-region node area](../../../docs/reference/memory.md#the-sdks-address-region-node-area).
 
 ## Open
 

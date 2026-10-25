@@ -18,7 +18,7 @@ No `patches.py`, no `sdk_patches.py` cut for its `sdk` build (`2d369d99…`), no
 
 ## Services
 
-- **Resolved:** SDK 11 calls that reach a service: `hid::GetMouseState` (the first boot aborted in it: the SDK's mouse resource was never initialized), `fs::CleanDirectoryRecursively`, `fs::EnableGlobalFileDataCache`, `oe::SetUserInactivityDetectionTimeExtendedUnsafe`, `time::ToPosixTime` (host `mktime`) and `audio::GetAudioOutName` ([03, Services and SDK](../../../docs/agents/03-bringup.md#services-and-sdk)).
+- **Resolved:** SDK 11 calls that reach a service: `hid::GetMouseState` (the first boot aborted in it: the SDK's mouse resource was never initialized), `fs::CleanDirectoryRecursively`, `fs::EnableGlobalFileDataCache`, `oe::SetUserInactivityDetectionTimeExtendedUnsafe`, `time::ToPosixTime` (host `mktime`) and `audio::GetAudioOutName` ([Mouse, keyboard and key code maps](../../../docs/reference/services.md#mouse-keyboard-and-key-code-maps), [Directory, file data cache and save-thumbnail calls](../../../docs/reference/services.md#directory-file-data-cache-and-save-thumbnail-calls), [oe calls answered without an applet proxy](../../../docs/reference/services.md#oe-calls-answered-without-an-applet-proxy), [Time zone rules, calendar conversion and the network clock](../../../docs/reference/services.md#time-zone-rules-calendar-conversion-and-the-network-clock), [Audio device output volume and names](../../../docs/reference/audio.md#audio-device-output-volume-and-names)).
 
 ## Files and shaders
 
@@ -38,10 +38,10 @@ No `patches.py`, no `sdk_patches.py` cut for its `sdk` build (`2d369d99…`), no
 
 General host changes first needed here; each applies to every game:
 
-- **64 KB-aligned large allocations** (`alloc_big_align`, `hle_os.c`; shared with Unicorn Overlord, [010069401ADB8000](../010069401ADB8000/README.md)): [03, Memory and address space](../../../docs/agents/03-bringup.md#memory-and-address-space) and [the profile keys](../README.md#keys).
-- **GLSLC outputs in `main`** (`shader_split.py` `glslc_shaders`, the control / code / length check): [04, section 1](../../../docs/agents/04-graphics.md#1-find-every-shader-container).
-- **Single-stage programs paired with a cover** (`vs_pad`), **a shader cache key that covers the pairs** (`shader_key`, `pair_keyed`), **triangle fans and indexed quads** (a shared fan index buffer; CPU expansion at replay in `nvn_mtl.m`), **vertex streams 14 and 15 at slots 14 and 15** (`VB_SLOT`) and **packaged texture data copied at `TextureInitialize`**: [04, Seen in 13 Sentinels](../../../docs/agents/04-graphics.md#seen-in-13-sentinels).
-- **Finding service calls before the first boot** (`main`'s `nn::` imports filtered against `HLE_FORCE` names): [03, Services and SDK](../../../docs/agents/03-bringup.md#services-and-sdk).
+- **64 KB-aligned large allocations** (`alloc_big_align`, `hle_os.c`; shared with Unicorn Overlord, [010069401ADB8000](../010069401ADB8000/README.md)): [Ring heaps cut from a pool at 64 KB alignment](../../../docs/reference/memory.md#ring-heaps-cut-from-a-pool-at-64-kb-alignment) and [the profile keys](../README.md#keys).
+- **GLSLC outputs in `main`** (`shader_split.py` `glslc_shaders`, the control / code / length check): [GLSLC outputs in `main` and in loose files](../../../docs/reference/shaders.md#glslc-outputs-in-main-and-in-loose-files).
+- **Single-stage programs paired with a cover** (`vs_pad`), **a shader cache key that covers the pairs** (`shader_key`, `pair_keyed`), **triangle fans and indexed quads** (a shared fan index buffer; CPU expansion at replay in `nvn_mtl.m`), **vertex streams 14 and 15 at slots 14 and 15** (`VB_SLOT`) and **packaged texture data copied at `TextureInitialize`**: [Single-stage programs paired with a cover](../../../docs/reference/shaders.md#single-stage-programs-paired-with-a-cover), [Shader cache key covering the pairs](../../../docs/reference/shaders.md#shader-cache-key-covering-the-pairs), [Triangle fans and indexed quads](../../../docs/reference/rendering.md#triangle-fans-and-indexed-quads), [Vertex streams 14 and 15 at Metal slots 14 and 15](../../../docs/reference/rendering.md#vertex-streams-14-and-15-at-metal-slots-14-and-15), [Packaged texture data copied at `TextureInitialize`](../../../docs/reference/nvn-objects.md#packaged-texture-data-copied-at-textureinitialize).
+- **Finding service calls before the first boot** (`main`'s `nn::` imports filtered against `HLE_FORCE` names): [Listing a game's unhooked imports before they are met](../../../docs/reference/services.md#listing-a-games-unhooked-imports-before-they-are-met).
 
 ## Open
 

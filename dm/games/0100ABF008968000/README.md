@@ -19,7 +19,7 @@ No `patches.py`.
 
 ## Services
 
-SDK 7 calls, one boot each; the import list against the hooks and every other game's imports named all of them beforehand (33 `nn::` imports no host hook names and no other game imports) ([03, Services and SDK](../../../docs/agents/03-bringup.md#services-and-sdk)):
+SDK 7 calls, one boot each; the import list against the hooks and every other game's imports named all of them beforehand (33 `nn::` imports no host hook names and no other game imports) ([Listing a game's unhooked imports before they are met](../../../docs/reference/services.md#listing-a-games-unhooked-imports-before-they-are-met)):
 
 - **Resolved: the Poké Ball Plus** (`hid::*Palma*`, 26 functions; the first boot crashed in `hid::detail::SetPalmaBoostMode`, a null read at `sdk+0x238eb0`, the hid service never opened). The host answers that none is connected: no npad has the Palma style, so the game never gets a connection handle, and every call on a handle fails (`hle_hid.c`).
 - **Resolved: `pdm::QueryApplicationPlayStatistics`** (the second boot: a null read at `sdk+0x336ccc`). The game asks how often this user launched two other games (the Let's Go play statistics) and reads only the launch count, so each is never played (`hle_offline.c`).
@@ -53,6 +53,6 @@ SDK 7 calls, one boot each; the import list against the hooks and every other ga
 
 General host changes first needed here; each applies to every game:
 
-- **The Poké Ball Plus answered as absent** (`hle_hid.c`), **play statistics as never played** (`hle_offline.c`), `err::ShowNetworkServiceError`, `nvnDeviceGetWindowOriginMode` / `nvnDeviceGetDepthMode`: [03, Services and SDK](../../../docs/agents/03-bringup.md#services-and-sdk).
-- **The GFPAK reader** (`gfpak_members`) and **`.tfxo` streams in `main`** (`tfxo_streams`, `tfxo_shaders`): [04, Seen in Pokémon Sword](../../../docs/agents/04-graphics.md#seen-in-pokémon-sword), [01, Compressed RomFS content](../../../docs/agents/01-extract.md#compressed-romfs-content).
+- **The Poké Ball Plus answered as absent** (`hle_hid.c`), **play statistics as never played** (`hle_offline.c`), `err::ShowNetworkServiceError`, `nvnDeviceGetWindowOriginMode` / `nvnDeviceGetDepthMode`: [Poké Ball Plus (Palma)](../../../docs/reference/services.md#poké-ball-plus-palma), [Account, friends, play data and Nintendo Account calls](../../../docs/reference/services.md#account-friends-play-data-and-nintendo-account-calls), [System applets opened by `Show…` calls](../../../docs/reference/services.md#system-applets-opened-by-show-calls), [Device getters that were red stubs](../../../docs/reference/nvn-objects.md#device-getters-that-were-red-stubs).
+- **The GFPAK reader** (`gfpak_members`) and **`.tfxo` streams in `main`** (`tfxo_streams`, `tfxo_shaders`): [BNSH entries of GFPAK archives](../../../docs/reference/shaders.md#bnsh-entries-of-gfpak-archives), [Shaders in a zlib stream in main (YEBIS .tfxo)](../../../docs/reference/shaders.md#shaders-in-a-zlib-stream-in-main-yebis-tfxo), [01, Compressed RomFS content](../../../docs/agents/01-extract.md#compressed-romfs-content).
 - **A mixed float / integer pixel shader entry point** (`fs_uint`, `main0_m`, `uint_mask_m`, `pso_mixed_uint`), **cube views counted in cubes** (`tex_by_id`) and **packaged textures whose shared edge pages are written but whose own bytes are not, protected again instead of re-uploaded** (`pkg_edges_take`, `pkg_edges_clean`; `t_nvn` 6c1): same section.

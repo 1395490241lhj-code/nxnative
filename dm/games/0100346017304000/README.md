@@ -47,4 +47,4 @@ Update 1.1.1 (v131072) over the base game, SDK 12.3.3 (no other game's `sdk` bui
 
 General host changes first needed here; each applies to every game:
 
-- **`oe::SetCpuOverclockEnabled`** (`hle_oe.c`) and **gestures for `hid::GetGestureStates`** recognized from the touch points (`gesture_sample`: yuzu's rules plus an 8 px slop, `t_gesture`, `DM_TOUCH_LOG`, `DM_CTL` `drag`): [03, Services and SDK](../../../docs/agents/03-bringup.md#services-and-sdk).
+- **`oe::SetCpuOverclockEnabled`** (`hle_oe.c`) and **gestures for `hid::GetGestureStates`** recognized from the touch points (`gesture_sample`: yuzu's rules plus an 8 px slop, `t_gesture`, `DM_TOUCH_LOG`, `DM_CTL` `drag`): [CPU overclock calls without an apm session](../../../docs/reference/services.md#cpu-overclock-calls-without-an-apm-session), [Touch gestures recognized from the touch points](../../../docs/reference/services.md#touch-gestures-recognized-from-the-touch-points).

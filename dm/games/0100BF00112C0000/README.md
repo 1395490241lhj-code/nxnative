@@ -61,10 +61,10 @@ Brought up on the Mac: the ATLUS logo, the title, the puzzle type choice, the Go
 
 General host changes first needed here; each applies to every game:
 
-- **GLSLC GPU code version range follows the game's own GLSLC** (`hle_glslc.c` `dm_glslc_gpu_code`, `hle_nvn.c`; on Bayonetta 3 the reported newest version came to follow the SDK, 1.15 from SDK 8 after this game's GLSLC 8.2.1): [03, Services and SDK](../../../docs/agents/03-bringup.md#services-and-sdk).
-- **VertexA / VertexB merge** (`shader_split.py` `sph_stage`, `dmsh_build.py` `vertex_ab`), explained in full under [Shaders](#shaders): [04, Seen in Catherine: Full Body](../../../docs/agents/04-graphics.md#seen-in-catherine-full-body).
+- **GLSLC GPU code version range follows the game's own GLSLC** (`hle_glslc.c` `dm_glslc_gpu_code`, `hle_nvn.c`; on Bayonetta 3 the reported newest version came to follow the SDK, 1.15 from SDK 8 after this game's GLSLC 8.2.1): [GLSLC GPU code version against the driver's range](../../../docs/reference/shaders.md#glslc-gpu-code-version-against-the-drivers-range), [Newest GPU code version reported by the driver](../../../docs/reference/nvn-objects.md#newest-gpu-code-version-reported-by-the-driver).
+- **VertexA / VertexB merge** (`shader_split.py` `sph_stage`, `dmsh_build.py` `vertex_ab`), explained in full under [Shaders](#shaders): [VertexA and VertexB parts merged into one vertex shader](../../../docs/reference/shaders.md#vertexa-and-vertexb-parts-merged-into-one-vertex-shader).
 - **Commit at the first pass boundary after a buffer → texture copy** (`g_cut_copy`, `sub_cut`; always on, even with `DM_NVN_CUT=0`): same section.
-- **`nv12-uv-stride` in the movie decoder's output format** (`md_format` in `hle_movie.c`): [03, Services and SDK](../../../docs/agents/03-bringup.md#services-and-sdk).
+- **`nv12-uv-stride` in the movie decoder's output format** (`md_format` in `hle_movie.c`): [Output format keys (`md_format`)](../../../docs/reference/movies.md#output-format-keys-md_format).
 - **`nn::settings::GetAvailableLanguageCodeCount`** (`hle_sdk16.c`): same section.
 
 ## Open

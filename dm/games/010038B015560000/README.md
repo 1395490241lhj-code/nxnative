@@ -35,7 +35,7 @@ Mario's binding layout (combined textures at `0x20 + 8 × slot`, images at `0x12
 
 - 306 shaders: 257 GLSLC outputs in the engine's technique files (`resources_nx/release/master/shader/*.tec`, magic `TEC\0`, each output whole after a table of parameter names) and 49 in `main`. `shader_split.py` reads GLSLC outputs in any file no other reader takes, and pairs each as a single-stage program. Groups `resources` and `resourcesnx` (`shader_groups`).
 - **Unbuilt:** one geometry shader (`bahamuteffect.tec`), as Metal has no geometry stage.
-- On the outputs the old GLSLC rule keeps, this game's among them, the section-header reading added for SDK 4 (`glslc_section`) gives the same key ([04, Seen in Dark Souls Remastered](../../../docs/agents/04-graphics.md#seen-in-dark-souls-remastered)).
+- On the outputs the old GLSLC rule keeps, this game's among them, the section-header reading added for SDK 4 (`glslc_section`) gives the same key ([GLSLC outputs read through their section headers](../../../docs/reference/shaders.md#glslc-outputs-read-through-their-section-headers)).
 - `romfs_marker`: `resources/release/master/system/ffto/fftpack.en.bin`.
 
 ## Mac routes
@@ -46,9 +46,9 @@ Mario's binding layout (combined textures at `0x20 + 8 × slot`, images at `0x12
 
 General host changes first needed here; each applies to every game:
 
-- **GLSLC outputs in any RomFS file no other reader takes** (`shader_split.py`): [04, section 1](../../../docs/agents/04-graphics.md#1-find-every-shader-container).
-- **CPU writes into uncached pools uploaded** (`tex_dirty_upload` with `tex_flush_upload`), **integer views of image slots** (`img_fit`), **fragment barriers that end a pass after shader writes** (`swrite_note`, `nvn_refl.m`), **whole clears by channel mask** (`mtl_pf_chmask`) and the **new NVN entry points**: [04, Seen in FINAL FANTASY TACTICS - The Ivalice Chronicles](../../../docs/agents/04-graphics.md#seen-in-final-fantasy-tactics---the-ivalice-chronicles).
-- **A job wake lost between two workers on one auto-clear event** (thread dump `wait #`): [03, Threads](../../../docs/agents/03-bringup.md#threads).
+- **GLSLC outputs in any RomFS file no other reader takes** (`shader_split.py`): [GLSLC outputs in `main` and in loose files](../../../docs/reference/shaders.md#glslc-outputs-in-main-and-in-loose-files).
+- **CPU writes into uncached pools uploaded** (`tex_dirty_upload` with `tex_flush_upload`), **integer views of image slots** (`img_fit`), **fragment barriers that end a pass after shader writes** (`swrite_note`, `nvn_refl.m`), **whole clears by channel mask** (`mtl_pf_chmask`) and the **new NVN entry points**: [CPU writes with no flush, caught by page protection (`tex_dirty_upload`)](../../../docs/reference/nvn-objects.md#cpu-writes-with-no-flush-caught-by-page-protection-tex_dirty_upload), [Integer views for images a shader declares uint or int](../../../docs/reference/rendering.md#integer-views-for-images-a-shader-declares-uint-or-int), [Fragment-ordering barriers between draws that write images](../../../docs/reference/rendering.md#fragment-ordering-barriers-between-draws-that-write-images), [A channel mask that covers every channel is a whole clear](../../../docs/reference/rendering.md#a-channel-mask-that-covers-every-channel-is-a-whole-clear), [Plural texture binds, builder-registered samplers, strided texel writes, device item 0x67](../../../docs/reference/nvn-objects.md#plural-texture-binds-builder-registered-samplers-strided-texel-writes-device-item-0x67).
+- **A job wake lost between two workers on one auto-clear event** (thread dump `wait #`): [One auto-clear event shared by a pool's workers](../../../docs/reference/threads.md#one-auto-clear-event-shared-by-a-pools-workers).
 
 ## Open
 

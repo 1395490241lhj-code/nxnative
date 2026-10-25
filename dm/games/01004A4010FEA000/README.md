@@ -42,9 +42,9 @@ Update 1.2.0 (v131072) over the base game, SDK 13.3.2 (no other game's `sdk` bui
 
 General host changes first needed here; each applies to every game:
 
-- **The NVN layer's newest GPU code version follows the SDK** (1.15 from SDK 8, 1.16 from SDK 13, `hle_nvn.c`), `nvnWindowGetCrop` and `nvnSamplerBuilderGetLodClamp`: [03, Services and SDK](../../../docs/agents/03-bringup.md#services-and-sdk).
+- **The NVN layer's newest GPU code version follows the SDK** (1.15 from SDK 8, 1.16 from SDK 13, `hle_nvn.c`), `nvnWindowGetCrop` and `nvnSamplerBuilderGetLodClamp`: [Newest GPU code version reported by the driver](../../../docs/reference/nvn-objects.md#newest-gpu-code-version-reported-by-the-driver), [NVN calls that were red stubs](../../../docs/reference/nvn-objects.md#nvn-calls-that-were-red-stubs).
 - **Oodle's streaming decoder in the Mac host's tool mode** (`hle_oodle.c`, `OodleLZDecoder_*`, `oodle_packs`) and the **PKZ / DAT readers**: [01, Compressed RomFS content](../../../docs/agents/01-extract.md#compressed-romfs-content).
-- **PlatinumGames shader objects** (`pg_shader`): [04, Seen in Bayonetta 3](../../../docs/agents/04-graphics.md#seen-in-bayonetta-3).
+- **PlatinumGames shader objects** (`pg_shader`): [PlatinumGames' shader objects](../../../docs/reference/shaders.md#platinumgames-shader-objects).
 
 ## Open
 

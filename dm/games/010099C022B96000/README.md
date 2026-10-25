@@ -56,7 +56,7 @@ Update 1.3.1 (v327680) over the base game, SDK 18.3.5. The Wii game (codename Co
 ## Services
 
 - **Resolved: `sm::Initialize` aborted right after `ConnectToNamedPort` (SVC 0x1F) and `SendSyncRequest` (0x21).** An SDK call the host did not hook opened its service: `nn::hid::InitializeTouchScreen(int, int)`, the SDK 18 overload of the hooked `InitializeTouchScreen()`.
-- Focus handling mode 3 (no focus notifications; the system suspends the game out of focus). The host queues message 15 only under modes 1 and 2 ([03, Services and SDK](../../../docs/agents/03-bringup.md#services-and-sdk), the Galaxy 2 entry).
+- Focus handling mode 3 (no focus notifications; the system suspends the game out of focus). The host queues message 15 only under modes 1 and 2 ([Focus handling mode decides whether focus changes are notified](../../../docs/reference/services.md#focus-handling-mode-decides-whether-focus-changes-are-notified)).
 
 ## Damaged NSP
 
@@ -71,10 +71,10 @@ Update 1.3.1 (v327680) over the base game, SDK 18.3.5. The Wii game (codename Co
 
 General host changes first needed here; each applies to every game:
 
-- **Vulkan layer additions** (push constants, descriptor arrays, dual-source blending `vk_<key>_d`, GX vertex formats, viewport and scissor across passes, copies inside a pass, INHERIT transform and the vi layer crop, linear images, queries, `fix_strides`): [04, Seen in Super Mario Galaxy (Vulkan)](../../../docs/agents/04-graphics.md#seen-in-super-mario-galaxy-vulkan).
+- **Vulkan layer additions** (push constants, descriptor arrays, dual-source blending `vk_<key>_d`, GX vertex formats, viewport and scissor across passes, copies inside a pass, INHERIT transform and the vi layer crop, linear images, queries, `fix_strides`): [Push constants in the next free buffer slot](../../../docs/reference/rendering.md#push-constants-in-the-next-free-buffer-slot), [Descriptor arrays bound to consecutive slots](../../../docs/reference/rendering.md#descriptor-arrays-bound-to-consecutive-slots), [Dual-source blending from output location 1](../../../docs/reference/rendering.md#dual-source-blending-from-output-location-1), [Scaled and three-component vertex formats](../../../docs/reference/rendering.md#scaled-and-three-component-vertex-formats), [Viewport and scissor persist across render passes](../../../docs/reference/rendering.md#viewport-and-scissor-persist-across-render-passes), [Copies inside a render pass](../../../docs/reference/rendering.md#copies-inside-a-render-pass), [Swapchain pre-transform and layer crop](../../../docs/reference/rendering.md#swapchain-pre-transform-and-layer-crop), [Linear images alias their memory](../../../docs/reference/rendering.md#linear-images-alias-their-memory), [Timestamp and occlusion queries](../../../docs/reference/rendering.md#timestamp-and-occlusion-queries), [Vulkan shaders generated at run time](../../../docs/reference/rendering.md#vulkan-shaders-generated-at-run-time).
 - **SPIR-V captured at run time** (`DM_VK_CAPTURE`, `vk_capture.tsv`, the NSP script's capture stage): [development.md, The packing script in detail](../../../docs/development.md#the-packing-script-in-detail) and [dm/games/README.md](../README.md#what-the-game-files-decide-at-every-build).
-- **Sleeps under 20 µs take the yield back-off** (`sleep_precise`, `hle_thread.c`): [03, Threads](../../../docs/agents/03-bringup.md#threads).
-- **SDK 18's `InitializeTouchScreen(int, int)`** hooked: [03, Services and SDK](../../../docs/agents/03-bringup.md#services-and-sdk).
+- **Sleeps under 20 µs take the yield back-off** (`sleep_precise`, `hle_thread.c`): [Sleeps under 20 µs take the yield path](../../../docs/reference/threads.md#sleeps-under-20-µs-take-the-yield-path).
+- **SDK 18's `InitializeTouchScreen(int, int)`** hooked: [SDK calls that open a system service through sm](../../../docs/reference/services.md#sdk-calls-that-open-a-system-service-through-sm).
 - **`op_mode`** (the operation mode at start, `DM_OPMODE`): [dm/games/README.md, Keys](../README.md#keys).
 
 ## Open

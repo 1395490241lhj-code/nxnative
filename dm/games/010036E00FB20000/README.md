@@ -48,6 +48,6 @@ Base game 1.0.0 (v0), with its DLC `010036E00FB21001`. SDK 10.4.1. Capcom's MT F
 
 General host changes first needed here; each applies to every game:
 
-- **CPU-written textures with no flush** (`tex_dirty_upload`): [04, Seen in The Great Ace Attorney Chronicles](../../../docs/agents/04-graphics.md#seen-in-the-great-ace-attorney-chronicles), key in [dm/games/README.md](../README.md).
-- **The MT Framework ARC and SPK readers** (`mtarc_members`, `mtspk_shaders`): [04, section 1](../../../docs/agents/04-graphics.md#1-find-every-shader-container).
-- **SDK 10 calls found from the import list**, `nvnDeviceSetIntermediateShaderCache` and `nvnCommandBufferDiscardColor`: [03, Services and SDK](../../../docs/agents/03-bringup.md#services-and-sdk).
+- **CPU-written textures with no flush** (`tex_dirty_upload`): [CPU writes with no flush, caught by page protection](../../../docs/reference/nvn-objects.md#cpu-writes-with-no-flush-caught-by-page-protection-tex_dirty_upload), key in [dm/games/README.md](../README.md).
+- **The MT Framework ARC and SPK readers** (`mtarc_members`, `mtspk_shaders`): [SPK shader package in an MT Framework ARC](../../../docs/reference/shaders.md#spk-shader-package-in-an-mt-framework-arc).
+- **SDK 10 calls found from the import list**, `nvnDeviceSetIntermediateShaderCache` and `nvnCommandBufferDiscardColor`: [services.md](../../../docs/reference/services.md), [NVN calls that were red stubs](../../../docs/reference/nvn-objects.md#nvn-calls-that-were-red-stubs).

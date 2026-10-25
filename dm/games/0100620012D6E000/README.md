@@ -30,8 +30,8 @@ No `patches.py`, and `dm/tools/sdk_patches.py` has no cut for its `sdk` build (`
 
 ## Audio
 
-- Its `AudioRenderSystem::Update` lock is `SdkMutexType::Lock` at +0x1d8 (SDK 10.4–11.4); `update_lock` (`hle_audren.c`) was checked with sound on it ([03, Audio](../../../docs/agents/03-bringup.md#audio)).
-- **Resolved:** when queued catch-up frames still signalled the renderer event, every frame of this game became a catch-up frame (about 38,000 catch-up renders instead of 37). A queued frame no longer signals the event ([03, Audio](../../../docs/agents/03-bringup.md#audio)).
+- Its `AudioRenderSystem::Update` lock is `SdkMutexType::Lock` at +0x1d8 (SDK 10.4–11.4); `update_lock` (`hle_audren.c`) was checked with sound on it ([The renderer's update lock](../../../docs/reference/audio.md#the-renderers-update-lock-update_lock)).
+- **Resolved:** when queued catch-up frames still signalled the renderer event, every frame of this game became a catch-up frame (about 38,000 catch-up renders instead of 37). A queued frame no longer signals the event ([A sound driver that never waits on the renderer event](../../../docs/reference/audio.md#a-sound-driver-that-never-waits-on-the-renderer-event)).
 
 ## Movies
 
@@ -41,7 +41,7 @@ No `patches.py`, and `dm/tools/sdk_patches.py` has no cut for its `sdk` build (`
 
 ## Services
 
-SDK 11.4.3 calls it needed ([03, Services and SDK](../../../docs/agents/03-bringup.md#services-and-sdk)):
+SDK 11.4.3 calls it needed ([Hardware Opus decoders](../../../docs/reference/audio.md#hardware-opus-decoders-built-on-the-sdks-software-decoders), [Directory, file data cache and save-thumbnail calls](../../../docs/reference/services.md#directory-file-data-cache-and-save-thumbnail-calls), the rest in [services.md](../../../docs/reference/services.md)):
 
 - **Abort in `sf::hipc::InitializeHipcServiceResolution` under `codec::GetHardwareOpusDecoderWorkBufferSize(int, int)`** (`main+0x31f8e8`, early in `nnMain`): SDK 11's form without the option argument; the host had only the three-argument one.
 - From the import list before the next boot (`main`'s undefined `nn::` symbols no hook names): `fs::EnableIndividualFileDataCache` / `DisableIndividualFileDataCache`; `account::LoadCachedNintendoAccountInfo` (fails: no Nintendo Account; the game then skips the birthday and country getters); the IR camera (`irsensor`: every camera unconnected, processors cannot run; Bezel's input layer makes one per controller and asks its status, `main+0x497f84`); `ldn::GetNetworkConfig`; and SDK 11's socket overloads with plain `sockaddr` / `int` arguments (`Connect`, `Accept`, `GetSockName`, `Get` / `SetSockOpt`, `Fcntl`, `Recv`, `Send`).
@@ -65,10 +65,10 @@ SDK 11.4.3 calls it needed ([03, Services and SDK](../../../docs/agents/03-bring
 
 General host changes first needed here; each applies to every game:
 
-- **`sys_resource`**: the host reports the NPDM's system resource instead of 32 MB for every game: [dm/games/README.md, Keys](../README.md#keys), [03, Services and SDK](../../../docs/agents/03-bringup.md#services-and-sdk).
-- **Movie decoder Flush from several threads** (a send claims an index a flush returned, `pend[]` cannot overflow, an index held across a flush is withheld for 250 ms; a flush keeps each slot's last picture, and in native-texture mode an output with no picture leaves the texture as it was; `hle_movie.c`): [03, Services and SDK](../../../docs/agents/03-bringup.md#services-and-sdk).
+- **`sys_resource`**: the host reports the NPDM's system resource instead of 32 MB for every game: [dm/games/README.md, Keys](../README.md#keys), [Virtual address memory follows the NPDM's system resource](../../../docs/reference/memory.md#virtual-address-memory-follows-the-npdms-system-resource).
+- **Movie decoder Flush from several threads** (a send claims an index a flush returned, `pend[]` cannot overflow, an index held across a flush is withheld for 250 ms; a flush keeps each slot's last picture, and in native-texture mode an output with no picture leaves the texture as it was; `hle_movie.c`): [Input indices returned by a flush while a client holds them](../../../docs/reference/movies.md#input-indices-returned-by-a-flush-while-a-client-holds-them).
 - **SIGABRT caught by the crash handler**: before it was, this game died once with exit 134, nothing in the log and no report: [05, Reading a crash report](../../../docs/agents/05-debugging.md#reading-a-crash-report).
-- **BNSH in Bezel Engine archives** (`bea_members`): [04, Find every shader container](../../../docs/agents/04-graphics.md#1-find-every-shader-container).
+- **BNSH in Bezel Engine archives** (`bea_members`): [BNSH in Bezel Engine archives](../../../docs/reference/shaders.md#bnsh-in-bezel-engine-archives).
 - The spin-wait search's store rule takes one more loop in its `main`, a real flag wait (`main+0x1734e0`): [development.md, Power](../../../docs/development.md#power).
 
 ## Open

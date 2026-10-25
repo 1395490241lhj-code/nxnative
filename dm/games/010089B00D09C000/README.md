@@ -63,8 +63,8 @@ The three geometry shaders were the test case of the general geometry-shader com
 
 General host changes first needed here; each applies to every game:
 
-- **H.264 drain on a released output slot** (`ReleaseOutputBufferIndex` goes on with the drain; the end-of-stream output takes the first queued picture, `jflush`, `hle_movie.c`): [03, Services and SDK](../../../docs/agents/03-bringup.md#services-and-sdk).
-- **Per-stage composite taken again after a replay state restore** (`prog_resolve` in `nvn_mtl.m`, after `pso_predict_rest`, the fusion probe and the deferred-draw replay): [04, the entry under Seen in Metroid Dread](../../../docs/agents/04-graphics.md#seen-in-metroid-dread).
+- **H.264 drain on a released output slot** (`ReleaseOutputBufferIndex` goes on with the drain; the end-of-stream output takes the first queued picture, `jflush`, `hle_movie.c`): [H.264 drain at the end of a stream goes on with released slots](../../../docs/reference/movies.md#h264-drain-at-the-end-of-a-stream-goes-on-with-released-slots).
+- **Per-stage composite taken again after a replay state restore** (`prog_resolve` in `nvn_mtl.m`, after `pso_predict_rest`, the fusion probe and the deferred-draw replay): [Composite program taken again after a replay state restore](../../../docs/reference/rendering.md#composite-program-taken-again-after-a-replay-state-restore).
 - **Geometry shaders as compute** (native VS capture, GS dispatch, output-reader vertex function; `t_geometry`): [geometry support and limits](../../../docs/geometry-metal-research.md).
 - The spin-wait search's store rule takes one wider loop in its `main`: [development.md, Power](../../../docs/development.md#power).
 

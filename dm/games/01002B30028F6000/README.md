@@ -36,7 +36,7 @@ No `pad_layout`: the virtual gamepad starts in the 2D layout (the default).
 
 General host changes first needed here; each applies to every game:
 
-- **MonoGame effects** (MGFX) in XNB files and in `main` (`mgfx_effect` in `shader_split.py`): [04, Find every shader container](../../../docs/agents/04-graphics.md#1-find-every-shader-container).
+- **MonoGame effects** (MGFX) in XNB files and in `main` (`mgfx_effect` in `shader_split.py`): [MGFX effects in MonoGame XNB files](../../../docs/reference/shaders.md#mgfx-effects-in-monogame-xnb-files).
 
 ## Open
 

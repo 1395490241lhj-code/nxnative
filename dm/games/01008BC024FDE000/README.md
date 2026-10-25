@@ -29,7 +29,7 @@ The pad layout is the default 2D one (no `pad_layout` row) and the operation mod
 ## Movies and audio
 
 - 87 H.264 / AAC MP4 movies in `movie/`, demuxed by the SDK's `movie::Extractor` in `subsdk0` and decoded by the host (`hle_movie.c`): decoders opened with output 4 (NV12 into the client's buffer, 1280 × 720 × 1.5 bytes) in mode 1. The title menu's background is one of those movies.
-- **Resolved: a null read at `sdk+0x1f2314` as the first movie starts** (the title menu's background, right after the first press), in `nn::audio::SetAudioOutVolume`, called from `main+0x1c4fbc` on the AudioOut the game opens for the movie's AAC sound (`OpenDefaultAudioOut` without an event, `main+0x1c48c0`). The SDK's version calls the audout session's virtual method, and the host never made the session. The game sets the volume every frame while a movie plays. The host keeps it per output and scales the PCM16 it plays, saturating; `GetAudioOutVolume` reads it back (`hle_audio.c`). It was among `main`'s imports that no host hook names; the others there fill the game's own structures or run in `sdk` (the CPU audio renderer, the swkbd and hid argument builders). It was the one call the game needed ([03, Services and SDK](../../../docs/agents/03-bringup.md#services-and-sdk)).
+- **Resolved: a null read at `sdk+0x1f2314` as the first movie starts** (the title menu's background, right after the first press), in `nn::audio::SetAudioOutVolume`, called from `main+0x1c4fbc` on the AudioOut the game opens for the movie's AAC sound (`OpenDefaultAudioOut` without an event, `main+0x1c48c0`). The SDK's version calls the audout session's virtual method, and the host never made the session. The game sets the volume every frame while a movie plays. The host keeps it per output and scales the PCM16 it plays, saturating; `GetAudioOutVolume` reads it back (`hle_audio.c`). It was among `main`'s imports that no host hook names; the others there fill the game's own structures or run in `sdk` (the CPU audio renderer, the swkbd and hid argument builders). It was the one call the game needed ([AudioOut volume kept per output](../../../docs/reference/audio.md#audioout-volume-kept-per-output)).
 - Its sound goes through the hardware Opus decoder calls (`hle_codec.c`).
 
 ## Files and shaders
@@ -50,9 +50,9 @@ The pad layout is the default 2D one (no `pad_layout` row) and the operation mod
 
 General host changes first needed here; each applies to every game:
 
-- **`nn::audio::SetAudioOutVolume` / `GetAudioOutVolume`** per output (`hle_audio.c`): [03, Services and SDK](../../../docs/agents/03-bringup.md#services-and-sdk).
-- **Storage takeover in the storage-sharing texture table** (`alias_take_over` in `nvn_mtl.m`, with its guards for live texture objects and lookups in the last 16 submissions, and the `shared textures N (…)` memory line): [04, Seen in STEINS;GATE RE:BOOT](../../../docs/agents/04-graphics.md#seen-in-steinsgate-reboot).
-- The halfword jump-table padding (`half_count`) changed 1 to 6 tables in some `main`s, this one among them: [03, Rewriter](../../../docs/agents/03-bringup.md#rewriter).
+- **`nn::audio::SetAudioOutVolume` / `GetAudioOutVolume`** per output (`hle_audio.c`): [AudioOut volume kept per output](../../../docs/reference/audio.md#audioout-volume-kept-per-output).
+- **Storage takeover in the storage-sharing texture table** (`alias_take_over` in `nvn_mtl.m`, with its guards for live texture objects and lookups in the last 16 submissions, and the `shared textures N (…)` memory line): [Shared-storage entries taken over by a new texture](../../../docs/reference/rendering.md#shared-storage-entries-taken-over-by-a-new-texture).
+- The halfword jump-table padding (`half_count`) changed 1 to 6 tables in some `main`s, this one among them: [Halfword jump table landing pads sized to the largest entry](../../../docs/reference/rewriter.md#halfword-jump-table-landing-pads-sized-to-the-largest-entry).
 
 ## Open
 

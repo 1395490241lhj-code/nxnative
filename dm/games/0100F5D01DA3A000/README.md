@@ -36,8 +36,8 @@ Base game 1.0.0 (v0), SDK 16.2.4. Unity 2022.3.5f1 IL2CPP with FMOD on NVN. Modu
 
 General changes first needed here; each applies to every game:
 
-- **Written-out `Shader` layouts for Unity players with no bundle to borrow a tree from** (`KNOWN_TREES`, `tree_from_layout`, given in the split's second pass): [04, Find every shader container](../../../docs/agents/04-graphics.md#1-find-every-shader-container).
-- **The node area cut on an `sdk` build whose first game never needed it** (Unicorn Overlord's): [03, Memory and address space](../../../docs/agents/03-bringup.md#memory-and-address-space).
+- **Written-out `Shader` layouts for Unity players with no bundle to borrow a tree from** (`KNOWN_TREES`, `tree_from_layout`, given in the split's second pass): [Unity Shader layouts written out for players without bundles](../../../docs/reference/shaders.md#unity-shader-layouts-written-out-for-players-without-bundles).
+- **The node area cut on an `sdk` build whose first game never needed it** (Unicorn Overlord's): [The SDK's address-region node area](../../../docs/reference/memory.md#the-sdks-address-region-node-area).
 
 ## Open
 

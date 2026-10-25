@@ -38,7 +38,7 @@ No `patches.py`. `op_mode` stays docked: Odyssey only takes its motion moves in 
 
 ## Audio
 
-- It is silent for its first minute with either audio renderer update lock: the old SDK 16 offset and the one `update_lock` now reads off the SDK's own `Update` (`MutexType` at +0x1d8 on SDK 6.4–8.2) ([03, Audio](../../../docs/agents/03-bringup.md#audio)).
+- It is silent for its first minute with either audio renderer update lock: the old SDK 16 offset and the one `update_lock` now reads off the SDK's own `Update` (`MutexType` at +0x1d8 on SDK 6.4–8.2) ([The renderer's update lock](../../../docs/reference/audio.md#the-renderers-update-lock-update_lock)).
 
 ## Files and shaders
 
@@ -55,11 +55,11 @@ No `patches.py`. `op_mode` stays docked: Odyssey only takes its motion moves in 
 
 General host changes first needed here; each applies to every game:
 
-- **Largest point size at `c0 + 0x610`**: [04, section 3](../../../docs/agents/04-graphics.md#3-find-the-binding-layout-by-census) and [04, Seen in Odyssey](../../../docs/agents/04-graphics.md#seen-in-super-mario-odyssey).
-- **Invariant positions** (`-fpreserve-invariance` in `dmsh_build.py` and `ios_metal.py`): [04, section 6](../../../docs/agents/04-graphics.md#6-other-per-title-surprises-seen-in-mario).
-- **Full controller and six-axis histories**, **six-axis sensors and the shake** (`DM_BTN_SHAKE`), **SDK 7 start-up services**: [03, Services and SDK](../../../docs/agents/03-bringup.md#services-and-sdk).
+- **Largest point size at `c0 + 0x610`**: [04, section 3](../../../docs/agents/04-graphics.md#3-find-the-binding-layout-by-census) and [Graphics `c0 + 0x610`: the largest point size](../../../docs/reference/shaders.md#graphics-c0--0x610-the-largest-point-size).
+- **Invariant positions** (`-fpreserve-invariance` in `dmsh_build.py` and `ios_metal.py`): [Position invariance across shaders](../../../docs/reference/shaders.md#position-invariance-across-shaders).
+- **Full controller and six-axis histories**, **six-axis sensors and the shake** (`DM_BTN_SHAKE`), **SDK 7 start-up services**: [History reads fill every requested entry](../../../docs/reference/services.md#history-reads-fill-every-requested-entry), [Six-axis sensors](../../../docs/reference/services.md#six-axis-sensors), [SDK calls that open a system service through sm](../../../docs/reference/services.md#sdk-calls-that-open-a-system-service-through-sm).
 - **H.264 movies through VideoToolbox** (the `avcc` record, a presentation-order queue): described under [Movies](#movies); `hle_movie.c`.
-- **Small host segments for small grants** (`hostseg_size`): [03, Services and SDK](../../../docs/agents/03-bringup.md#services-and-sdk).
+- **Small host segments for small grants** (`hostseg_size`): [Host-lent command memory segments](../../../docs/reference/nvn-objects.md#host-lent-command-memory-segments).
 
 ## Open
 

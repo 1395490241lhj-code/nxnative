@@ -49,4 +49,4 @@ General host changes first needed here; each applies to every game:
 ## Open
 
 - The memory partition is Link's Awakening's, not measured for this game (`game.tsv`).
-- Online SDKs in NROs: always load them, refuse them (as now) or decide per profile is an open question for the maintainer ([03, Services and SDK](../../../docs/agents/03-bringup.md#services-and-sdk), the Absolum entry).
+- Online SDKs in NROs: always load them, refuse them (as now) or decide per profile is an open question for the maintainer ([Online SDKs in NROs are never loaded](../../../docs/reference/services.md#online-sdks-in-nros-are-never-loaded)).

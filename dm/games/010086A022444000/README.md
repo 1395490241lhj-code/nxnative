@@ -17,7 +17,7 @@ On the Mac: the boot, the title, a new game, the intro and the descent into the 
 
 - As Hollow Knight: Silksong: 16 MB of system resource, no heap (`main` never sets one), Unity 6 reserving and committing its memory itself through `nn::os::AllocateAddressRegion` and `AllocateMemoryPages` in the alias region, Engage's 5 GB block, and the node-area cut on this `sdk` build.
 - **Node area cut** on `sdk` build `8bfebccd6f5c1392597b364b9ab22a8d`: its AddressRegionManager constructor is the SDK 20.5.22 build's (Tears of the Kingdom's, [0100F2C0115B6000](../0100F2C0115B6000/README.md)) at the same offsets: the constructor at `sdk+0x145cfc`, the limit at `sdk+0x145d0c`, the occupied length at `sdk+0x145d78` (`mov w8 / w9,#0x3fe00000` → `#0x3e00000`).
-- The provisional profile was right as generated; the `sdk` build only needed the cut ([03, Memory and address space](../../../docs/agents/03-bringup.md#memory-and-address-space)).
+- The provisional profile was right as generated; the `sdk` build only needed the cut ([The SDK's address-region node area](../../../docs/reference/memory.md#the-sdks-address-region-node-area)).
 - Measured on the Mac over 10 minutes of the first dive and the base: the alias region's high-water mark +2.00 GB of 4.375 GB, 1.26 GB mapped, 1.6 GB resident, 0.7 GB of GPU memory, flat.
 
 ## Rendering
@@ -28,7 +28,7 @@ On the Mac: the boot, the title, a new game, the intro and the descent into the 
 
 - 38,099 shaders (18,913 vertex, 18,917 pixel, 116 compute, 76 hull and domain, one geometry), 11 of them the player's own GLSLC outputs in `main`; everything is under `Data/` (`shader_groups /Data/=data`).
 - Addressables: 11 bundles in `StreamingAssets/aa/Switch`; FMOD banks in `StreamingAssets` (one stereo AudioOut).
-- The loose serialized files (`resources.assets`, `sharedassets1.assets`, the built-in resources) have no type trees. They borrow the `Shader` tree that 10 of the bundles carry (the same type hash; `shader_split.py` defers a file that raises `NoTree` to a second pass), so `unityfs.py` needed no layout, as for Silksong ([04, Find every shader container](../../../docs/agents/04-graphics.md#1-find-every-shader-container)).
+- The loose serialized files (`resources.assets`, `sharedassets1.assets`, the built-in resources) have no type trees. They borrow the `Shader` tree that 10 of the bundles carry (the same type hash; `shader_split.py` defers a file that raises `NoTree` to a second pass), so `unityfs.py` needed no layout, as for Silksong ([Unity 6 Shader objects](../../../docs/reference/shaders.md#unity-6-shader-objects)).
 - `romfs_marker` is `Data/sharedassets1.assets`.
 
 ## Input
