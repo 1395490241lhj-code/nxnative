@@ -49,6 +49,28 @@ and `memory-tsan`; `memory` includes undefined-behavior and address sanitizers.
 The heap-probe check imports the production profile reader and needs only the
 Python standard library; LZ4 is loaded when decoding NSO files.
 
+## Continuous integration
+
+`.github/workflows/tests.yml` runs host and CPU graphics tests, Python tool
+tests, Mac builds for NVN/Vulkan/OpenGL profiles, and iOS source compilation.
+It also runs the CPU texture layout/deswizzle test (`dm/gfx/tex/tests/t_tex`)
+and the host's `tsan` and `memory-tsan` targets for audio and memory races.
+The texture format test (`t_fmt_mtl`) creates Metal textures and stays local.
+
+A separate iOS job uses XcodeGen and the production project template to compile
+`Launcher.swift`, link the complete app and stage synthetic resources. It uses
+tiny zero-filled embedded modules, needs no game files or keys, and neither
+signs nor installs the app. This checks build integration, not game execution.
+To reproduce it with Xcode and XcodeGen installed, choose a new scratch folder:
+
+```sh
+GAME=010015100B514000 python3 dm/ios/tools/build_smoke.py --output /path/to/scratch/ios-smoke
+```
+
+Generated projects and Xcode build products stay in that folder; the host profile
+header is generated under `dm/host/gen/` as usual. CI uploads failure logs.
+GPU regression tests still run locally with `make -C dm/gfx/tests GAME=<id> run`.
+
 ## The packing script in detail
 
 `scripts/build_ipa_from_nsp.py` (`-h` lists every option):
