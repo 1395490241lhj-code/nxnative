@@ -15,6 +15,13 @@ The guest address space, heaps, pools, virtual address memory and the allocators
 
 ## Heap and application pool
 
+### Provisional Unreal layout leaves no heap
+
+- **Symptom:** `SetHeapSize OOM: req 0x600000 > cap 0`, followed by an SDK abort in `nninitStartup` on the first provisional boot.
+- **Cause:** the provisional Unreal profile reserved `0x1028000000` bytes but assigned `0x1008000000` to the alias region. The 256 MB module region and 256 MB stacks consumed the remainder, leaving no heap.
+- **Fix:** `profile_guess.py` gives the alias region exactly 64 GB (`0x1000000000`), leaving 128 MB for the initial heap before the heap check measures the game. `test_profile_guess.py` checks the partition through the real profile generator.
+- **Found on:** [SHIN MEGAMI TENSEI V: Vengeance](../../dm/games/010069C01AB82000/README.md) 1.0.3, whose C library asks for 6 MB.
+
 ### Heap sized from the application pool less used memory
 
 - **Symptom:** `nnMain` returns right after `nv::InitializeGraphics`, with no error (Hyrule Warriors: Age of Calamity); `[mem] SetHeapSize … + modules … > app pool` (Monster Hunter Rise), `[mem] SetHeapSize … + modules 0x5c00000 > app pool` (Catherine: Full Body); `SetHeapSize` asks for almost the whole application pool and fails at boot (Metroid Dread: 0xc9400000, larger than the heap region); the memory pool for the game's 96 MB GPU heap has no storage (`MemoryPoolInitialize` red line), then a null read at `main+0x2eb954` (Catherine: Full Body); heap allocations fail late in a busy scene.
@@ -172,6 +179,7 @@ The guest address space, heaps, pools, virtual address memory and the allocators
   - [FINAL FANTASY RESONANCE](../../dm/games/0100606026F12000/README.md) (Unreal Engine 5.6.1, SDK 20.5.17): `nninitStartup` constructs its FMallocBinned3 in place in the bss, as Octopath Traveler 0's (`main+0x77c6210`; the call at `main+0x137f0` is cut, and its constructor would reserve 38 GB). UE 5.5 and later add `MallocZeroed` / `TryMallocZeroed` after `Free`, two TLS cache calls (`MarkTLSCachesAsUsed` / `Unused`) and two cached-memory queries, so the FMalloc vtable has 32 slots (layout `UE5_6` in `hle_uemalloc.c`: Malloc 6 … Free 10, QuantizeSize 13, GetAllocationSize 14). The base vtable shows it: its three pure slots are 0, and its slots 11 and 12 are one function that calls slot 6, then `memset`.
   - [Pikmin 4](../../dm/games/0100B7C00933A000/README.md) (Unreal Engine 4.26.2, 1.1.1, SDK 10.4.8): the allocator is made as in 4.27, with the same 21-slot FMalloc vtable (`GCreateMalloc` `main+0x353f770` mallocs 0x1c38 bytes and calls the constructor `main+0x35ba610`, the one store of the vtable `main+0x8da4758` outside its two destructors; found from the FMallocBinned3 error strings through the relocated slots). The cut and the gate are as DRAGON QUEST VII Reimagined's, the gate on the `ldp x29, x30` after the cut call (the `ret` case of [Observation gates where x9–x17 are dead](rewriter.md#observation-gates-where-x9x17-are-dead)).
   - [OCTOPATH TRAVELER II](../../dm/games/0100A3501946E000/README.md) (Unreal Engine 4.27, 1.1.1, SDK 12.3.2): as DRAGON QUEST VII Reimagined's (`GCreateMalloc` `main+0xbecbf0`, the constructor `main+0xc4d778`, the vtable `main+0x64710b0`), with 20 slots: no `OnMallocInitialized`, so the 21st word the host copies is the next vtable's offset to top, which nothing calls.
+  - [SHIN MEGAMI TENSEI V: Vengeance](../../dm/games/010069C01AB82000/README.md) (1.0.3, SDK 15.3.2): the same UE4 layout and constructor replacement; its note records the measured call sites and vtable.
 - **Note:** Unreal Engine 4.18 (DRAGON QUEST XI S) needs no allocator cut: the SDK's `NumberLineAllocator` hands its region out in 64 KB units (`main+0x177c4d0`), and the engine maps only what it uses.
 
 ### Thread stacks from the host's Unreal heap
