@@ -285,11 +285,13 @@ def text_assets(d, common):
     for pid, start, size, ti in objs:
         if tlist[ti][0] != CLASS_TEXT_ASSET: continue
         r = Reader(d, le); r.d = d[doff + start:doff + start + size]
+        if len(r.d) < 8: continue
         ln = r.u('i')
         # A TextAsset is m_Name then m_Script, two aligned strings. The first 4 bytes are the name's length (already read), so the name must leave 4 more
         # for the script's length field after it: the -8 is those two 4-byte length fields. Anything else is not this layout, so leave it out.
         if not 0 <= ln <= len(r.d) - 8: continue
         name = r.d[r.p:r.p + ln].decode('utf-8', 'replace'); r.p += ln; r.align()
+        if r.p + 4 > len(r.d): continue   # the name's padding left no room for the script's length
         ln = r.u('i')
         if not 0 <= ln <= len(r.d) - r.p: continue
         yield pid, name, r.d[r.p:r.p + ln]

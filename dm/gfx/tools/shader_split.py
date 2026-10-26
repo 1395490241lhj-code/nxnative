@@ -1487,33 +1487,57 @@ def zs_dicts(romfs):
     d = zstd_mod().decompress(open(p, 'rb').read())
     return {struct.unpack_from('<I', m, 4)[0]: m for _, m in sarc_members(d) if m[:4] == bytes.fromhex('37a430ec')}
 
+def zs_dict_id(d):
+    """The zstd dictionary a frame names (0: none)"""
+    fhd = d[4] if len(d) > 5 and d[:4] == ZSTD_MAGIC else 0
+    n, o = (0, 1, 2, 4)[fhd & 3], 6 - (fhd >> 5 & 1)   # dictionary ID size; it follows the window descriptor, which single-segment frames omit
+    return int.from_bytes(d[o:o + n], 'little')
+
+def unzs_dict(d, did, where):
+    """zstd frames that name dictionary did, decompressed with it from ZDICTS"""
+    zstd = zstd_mod()
+    if did not in ZDICTS: red(f'{where}: a frame needs zstd dictionary {did}, which Pack/ZsDic.pack.zs does not have')
+    if did not in _ZD: _ZD[did] = zstd.ZstdDict(ZDICTS[did])
+    return zstd.decompress(d, zstd_dict=_ZD[did])
+
 def unzs(path):
     """A zstd file decompressed: frames without a dictionary through the zstd command as before, frames that name one with that dictionary from ZDICTS"""
     d = open(path, 'rb').read()
-    fhd = d[4] if len(d) > 5 and d[:4] == bytes.fromhex('28b52ffd') else 0
-    n, o = (0, 1, 2, 4)[fhd & 3], 6 - (fhd >> 5 & 1)   # dictionary ID size; it follows the window descriptor, which single-segment frames omit
-    did = int.from_bytes(d[o:o + n], 'little')
+    did = zs_dict_id(d)
     if not did: return subprocess.run(['zstd', '-d', '-c', '-q', path], capture_output=True, check=True).stdout
-    zstd = zstd_mod()
-    if did not in ZDICTS: red(f'{path}: a frame needs zstd dictionary {did}, which Pack/ZsDic.pack.zs does not have')
-    if did not in _ZD: _ZD[did] = zstd.ZstdDict(ZDICTS[did])
-    return zstd.decompress(d, zstd_dict=_ZD[did])
+    return unzs_dict(d, did, path)
 
-def unzs_bytes(d, size=None):
-    """A zstd frame in memory: HAL's .cmp containers (Kirby and the Forgotten Land) hold one after a 4-byte little-endian uncompressed size, and the split has to open them to find the shaders"""
-    fhd = d[4] if len(d) > 5 else 0
-    n, o = (0, 1, 2, 4)[fhd & 3], 6 - (fhd >> 5 & 1)   # dictionary ID size; it follows the window descriptor, which single-segment frames omit
-    did = int.from_bytes(d[o:o + n], 'little')
-    zstd = zstd_mod()
-    if not did: return zstd.ZstdDecompressor().decompress(d, max_length=size if size else (1 << 31))
-    if did not in ZDICTS: raise ValueError(f'the frame needs the zstd dictionary {did}, which Pack/ZsDic.pack.zs does not have')
-    if did not in _ZD: _ZD[did] = zstd.ZstdDict(ZDICTS[did])
-    return zstd.decompress(d, zstd_dict=_ZD[did])
+def frame_size(f):
+    """The uncompressed size a zstd or LZ4 frame header records, None when it records none"""
+    if f[:4] == LZ4_FRAME_MAGIC:   # FLG, BD, then the 8-byte content size when FLG bit 3 is set
+        return int.from_bytes(f[6:14], 'little') if len(f) > 14 and f[4] & 8 else None
+    fhd = f[4] if len(f) > 5 else 0
+    single, n = fhd >> 5 & 1, (fhd >> 5 & 1, 2, 4, 8)[fhd >> 6]   # a single-segment frame always records it (1 byte at least), others only with a size flag
+    if not n: return None
+    o = 6 - single + (0, 1, 2, 4)[fhd & 3]   # after the window descriptor and the dictionary ID
+    return int.from_bytes(f[o:o + n], 'little') + (256 if n == 2 else 0)
 
-def unlz4_bytes(d):
-    """An LZ4 frame in memory: HAL's other .cmp container (the ubin/ map data)"""
-    import lz4.frame
-    return lz4.frame.decompress(d)
+def unsized(d, where):
+    """A size-prefixed frame (HAL's .cmp containers, Kirby and the Forgotten Land): a 4-byte little-endian uncompressed size, then a zstd frame (with a dictionary as for a zstd file)
+    or an LZ4 frame (its ubin/ map data) → the frame decompressed. Bytes whose frame header records another size are not such a container and are returned as they are (Tears of the
+    Kingdom's 1,202 Cave/…/C.crbin.<hash>/*.quad files: the word before the frame is that hash). A frame that records none must decompress to exactly the prefix's size; one that does not,
+    or does not decompress, is reported and returned as it is. So is a dictionary ZDICTS does not have, rather than stopping the split as for a zstd file: the ID may be any bytes after a magic at +4"""
+    n, f = struct.unpack_from('<I', d)[0], d[4:]
+    if frame_size(f) not in (None, n): return d
+    did = zs_dict_id(f)
+    try:
+        if f[:4] == LZ4_FRAME_MAGIC:
+            import lz4.frame
+            dec = lz4.frame.decompress(f)
+        elif did and did not in ZDICTS: dec = None
+        else: dec = unzs_dict(f, did, where) if did else zstd_mod().decompress(f)
+    except Exception as e: why = str(e) or type(e).__name__
+    else:
+        if dec is None: why = f'the frame needs zstd dictionary {did}, which Pack/ZsDic.pack.zs does not have'
+        elif len(dec) == n: return dec
+        else: why = f'the size prefix says {n} bytes, the frame holds {len(dec)}'
+    print(f'[RED] {where}: a size-prefixed frame that did not open ({why}): the file is read as it is', flush=True)   # a container that stays closed holds its shaders unread
+    return d
 
 def unity_program(code, where, stage=None):
     """Unity's Switch program code → [(stage, control, code)]; stage = the subprogram's stage from m_ParsedForm, which only the pre-2019.3 layout needs"""
@@ -1743,15 +1767,7 @@ def scan_file(args):
         for nm, m in gfpak_members(open(path, 'rb').read(), '/' + rel): scan_blob(m, f'/{rel}{nm}', found)
         return rel, uniq_keys(found), var_pairs(found), trees
     d = unzs(path) if head[:4] == ZSTD_MAGIC else open(path, 'rb').read()   # by the magic: Paper Mario: The Thousand-Year Door names its zstd files .zst (8,726, its shaders among them)
-    if head[:4] != ZSTD_MAGIC and head[4:8] in (ZSTD_MAGIC, LZ4_FRAME_MAGIC):   # HAL's .cmp containers (Kirby and the Forgotten Land: 7,201 of them, 5,121 zstd frames with 19,364 BNSH inside and 2,080 LZ4 frames): a 4-byte little-endian uncompressed size, then the frame. Read raw, the split found 121 shaders and the game asked for 900 it did not have ("[RED] shader ... is not in the shader map")
-        n = struct.unpack_from('<I', d, 0)[0]
-        why = ''
-        try: dec = unzs_bytes(d[4:], n) if head[4:8] == ZSTD_MAGIC else unlz4_bytes(d[4:])
-        except Exception as e: dec = None; why = str(e)
-        if dec is None: why = why or 'the frame did not open'
-        elif len(dec) != n: dec = None; why = f'the size prefix says {n} bytes, the frame holds {len(dec)}'
-        if dec is None: print(f'[RED] {rel}: the container did not open ({why}): the file is read as it is', flush=True)   # a container that stays closed holds its shaders unread, and the game asks for what the split did not find
-        else: d = dec
+    if head[:4] != ZSTD_MAGIC and head[4:8] in (ZSTD_MAGIC, LZ4_FRAME_MAGIC): d = unsized(d, '/' + rel)   # HAL's .cmp containers (Kirby and the Forgotten Land: 7,201 of them, 5,121 zstd frames with 19,364 BNSH inside and 2,080 LZ4 frames). Read raw, the split found 121 shaders and the game asked for 900 it did not have ("[RED] shader ... is not in the shader map")
     if d[:4] == b'Yaz0': d = yaz0(d)
     if d[:3] == b'XNB' and d[4] == 5 and d[5] & 0xC0 and len(d) > 14:   # a compressed XNB (Stardew Valley: 3,535 LZ4 files, 8 LZX): only effects (EffectReader) carry MGFX shaders, and for LZX the reader names sit in the first block, so it decides whether the rest is worth decoding
         if d[5] & 0x80:

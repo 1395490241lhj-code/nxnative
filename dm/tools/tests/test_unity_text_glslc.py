@@ -40,10 +40,12 @@ def glslc_output():
 def serialized_file(assets):
     """A synthetic serialized file (format 17, no type tree) whose objects are TextAssets. assets: [(name, script bytes)].
     The layout unityfs._tables reads: a 16-byte big-endian header + endianness byte, then little-endian metadata (version string, platform, no type tree,
-    one type entry for class 49, the object table) and the object data. Each TextAsset object = int32 name length + name + align to 4 + int32 script
+    one type entry for class 49, the object table) and the object data; an asset given as bytes is an object of those raw bytes. Each TextAsset object = int32 name length + name + align to 4 + int32 script
     length + script, the two leading fields text_assets reads without a type tree."""
     blks = []
-    for name, script in assets:
+    for a in assets:
+        if isinstance(a, bytes): blks.append(a); continue   # an object's raw bytes
+        name, script = a
         nb = name.encode()
         b = struct.pack('<i', len(nb)) + nb
         b += b'\0' * (-len(b) % 4)
@@ -80,6 +82,12 @@ class TextAssets(unittest.TestCase):
         self.assertEqual([(pid, name) for pid, name, _ in got], [(1, 'vfxsb'), (2, 'notes')])
         self.assertEqual(got[0][2], glslc_output())
         self.assertEqual(got[1][2], b'hello world')
+
+    def test_objects_too_short_for_the_layout(self):
+        # a name whose padding runs past the object, and an object shorter than the two length fields: left out, not read past their end
+        d = serialized_file([struct.pack('<i', 1) + b'ab\0\0\0', b'\0\0', ('vfxsb', glslc_output())])
+        got = list(unityfs.text_assets(d, {}))
+        self.assertEqual([name for _, name, _ in got], ['vfxsb'])
 
 
 class UnityTextGlslc(unittest.TestCase):
