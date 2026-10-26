@@ -109,6 +109,14 @@ The yield back-off (`DM_YIELD_BACKOFF`) and the rewriter's spin waits (`patch_ns
 
 ## Events and notifications
 
+### Service-event producers follow the binding lifetime
+
+- **Symptom:** a host helper thread aborts when signalling a destroyed `SystemEvent`; repeated `vi::GetDisplayVsyncEvent` calls double the event's tick rate. Rapid replacement can abort with `too many vsync events`, or a retired vsync worker can signal another service's event at reused storage.
+- **Cause:** lazy binding calls the SDK's `CreateSystemEvent`, which requires a guest thread. Checking only the guest address also mistakes a replacement binding for the original event, even if its kernel handle number is checked: both can be reused before the next tick. An eight-slot worker table counts destroyed events until their workers next run.
+- **Fix:** `hle_signal_system_event` retains lazy binding on guest threads; host threads skip an unbound event and log once. Each service-event binding gets a monotonically increasing identity. `hle_signal_system_event_binding` matches that identity and signals under the same lock as `CloseHandle`, so a stale producer cannot signal a replacement. The vi registry keeps one worker per binding identity in an allocated list; a worker whose binding closed removes only its own entry and exits. A new vi binding at reused storage gets its own worker, while repeated requests for a live binding share the existing one.
+- **Found on:** synthetic host regression cases in [`t_system_event.c`](../../dm/host/tests/t_system_event.c), using real binding and event SVCs with worker startup held until after destruction and handle reuse; no game failure is claimed.
+- **Check:** duplicate vi registration, nine rapid replacements before the first tick, storage and handle reuse by a different service, vi rebinding at reused storage, host signalling after destruction, and guest lazy binding. The capacity and unrelated-service cases fail on the original PR #202 and pass with lifetime identities and the allocated registry.
+
 ### One auto-clear event shared by a pool's workers
 
 - **Symptom:** the main thread waits forever on a job's done event at boot while every worker sleeps, two of them on one event (`main+0x1426c` waiting on `Job::m_doneEvent`); 4 of 6 Mac runs.
