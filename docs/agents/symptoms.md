@@ -187,6 +187,7 @@ One line per symptom in the [subsystem references](../reference/): what you see 
 - a native-texture movie shows as a strip of small grey copies at the top of the screen. → [Parameter sets in `Configure` made the H.264 decoder without RGBA](../reference/movies.md#parameter-sets-in-configure-made-the-h264-decoder-without-rgba)
 - looping movie previews flash black at the end of every loop. → [Last picture kept across a flush and at end of stream](../reference/movies.md#last-picture-kept-across-a-flush-and-at-end-of-stream)
 - the game crashed on a null right after the failed open. → [`movie::Extractor` runs natively](../reference/movies.md#movieextractor-runs-natively)
+- VP8 WebM movies play black; `movie::Decoder` is created with decoder type 2. → [VP8 uses the same libvpx worker and output paths](../reference/movies.md#vp8-uses-the-same-libvpx-worker-and-output-paths)
 
 ## Audio
 
@@ -202,6 +203,7 @@ One line per symptom in the [subsystem references](../reference/): what you see 
 - no sound; red `audren: command 1 in the command list is malformed (magic 0 size 0)`. → [SDK 6: the DSP command header layout](../reference/audio.md#sdk-6-the-dsp-command-header-layout)
 - no music and no sound effects, only the movies' sound (the log repeats `audren: first-frame commands …` every frame and never prints `DeviceSink inputs`). → [SDK 8: command IDs numbered differently](../reference/audio.md#sdk-8-command-ids-numbered-differently)
 - no sound; red `audren: command 0 in the command list is malformed (first word 0x181901 size 0)`. → [SDK 21 DSP command header without a magic](../reference/audio.md#sdk-21-dsp-command-header-without-a-magic)
+- FMOD waits for buffer release after stopping an AudioOut, hanging the game during a scene transition. → [Stopping an AudioOut releases its pending buffers](../reference/audio.md#stopping-an-audioout-releases-its-pending-buffers)
 - crackling on iOS only. → [RemoteIO's default I/O buffer duration](../reference/audio.md#remoteios-default-io-buffer-duration)
 - sound stays silent after Siri, an alarm, a call or another app's audio; a game whose audio thread waits for its buffers back (Wwise's poll-only output, FMOD) then waits forever. → [Interruptions that stop RemoteIO callbacks](../reference/audio.md#interruptions-that-stop-remoteio-callbacks)
 - combined numbers mislead: one fully fed output plus one fed by nobody look like "every other callback underruns, 2.0 blocks queued". → [Several outputs at once (`audio #N`)](../reference/audio.md#several-outputs-at-once-audio-n)
@@ -220,6 +222,7 @@ One line per symptom in the [subsystem references](../reference/): what you see 
 - after a 30 fps cap ends (a prerendered movie, the thermal cap), a GPU-bound game stays at 30 fps in a scene that held 60 before the cap; the log shows `frame step cap 30 → 60 fps` and a few frames later `frame step: hold 1 → 2 vsyncs at present … (3 late frames; …)`, with no probe after it. → [The frame step after a 30 fps cap ends](../reference/frame-rate.md#the-frame-step-after-a-30-fps-cap-ends)
 - slow motion when the GPU is the bottleneck: a game's interval controller that times the GPU never steps up (GitHub issue #9). → [GPU timestamps per submission segment](../reference/frame-rate.md#gpu-timestamps-per-submission-segment)
 - GPU time reads 32 times too small when a game converts raw NVN counter timestamps itself. → [Raw NVN timestamp units](../reference/frame-rate.md#raw-nvn-timestamp-units)
+- menus reach 60 fps with `present_interval display`, but entering gameplay returns to 30 fps despite spare GPU time. → [Unity's integer target frame rate](../reference/frame-rate.md#unitys-integer-target-frame-rate)
 - the game presents at interval 1, yet every frame takes exactly 33.3 ms of "frame work"; after only the limiter was raised, everything ran twice as fast on the iPhone. → [A render-thread limiter with a constant and a fixed time step](../reference/frame-rate.md#a-render-thread-limiter-with-a-constant-and-a-fixed-time-step)
 - 55 fps with every frame 18.2 ms, the main thread asleep most of the time; every 11th frame stays on screen two vsyncs. → [A frame-end wait polled in 2 ms sleeps](../reference/frame-rate.md#a-frame-end-wait-polled-in-2-ms-sleeps)
 - the app is active and the game keeps running, but the picture freezes while display-link callbacks stop; the log repeatedly drops queued frames. → [Present thread rescues a silent display link](../reference/frame-rate.md#present-thread-rescues-a-silent-display-link)
@@ -286,6 +289,7 @@ One line per symptom in the [subsystem references](../reference/): what you see 
 ## Rendering
 
 - Metal aborts on a texture descriptor with an absurd size (`height (1869367126) greater than … 16384`). → [Texture objects copied into command records](../reference/rendering.md#texture-objects-copied-into-command-records)
+- a decoded movie stays black even though its YUV textures contain the picture; disabling its depth test makes it visible. → [New textures start as zero](../reference/rendering.md#new-textures-start-as-zero)
 - glyphs render as white boxes (the font atlas is `(1, 1, 1, R)`). → [Texture swizzle through swizzled Metal views](../reference/rendering.md#texture-swizzle-through-swizzled-metal-views)
 - dark boxes and cream cloud rectangles behind HUD prompts, a black stamina wheel and a black System menu background (layout captures). → [`nvnTextureCompare` compares the channel mapping](../reference/rendering.md#nvntexturecompare-compares-the-channel-mapping)
 - `newTextureViewWithPixelFormat` takes a large share of the replay thread (45% in Age of Calamity) when a game registers textures into a ring of IDs before every bind. → [Texture views cached by texture and view parameters](../reference/rendering.md#texture-views-cached-by-texture-and-view-parameters)
