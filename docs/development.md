@@ -180,13 +180,15 @@ The bundle holds what the IPA holds, with the Mac's shader libraries:
   MacOS/nxnative             the launcher (dm/mac/launcher.c, compiled by pack_app.py)
   MacOS/dmhost               the Mac host built for the profile
   Resources/romfs/           the packed version's RomFS
-  Resources/msl/b-<chain>/   the Mac shader libraries (vk/ or gl/ for a Vulkan or GL game), without the compile cache cas/, which the host never reads
+  Resources/msl/b-<chain>/   the Mac shader libraries, reflection JSON and runtime TSV tables (vk/ or gl/ for a Vulkan or GL game)
   Resources/aoc/<index>/     the DLC, when the folder has some
   Resources/dm/              the rewritten modules and their rewriter tables, nro.tsv, the profile's shader_map.tsv, pso_manifest.tsv, c1_full.tsv and cb_extent.tsv, font/, env.txt (--env-file)
   Resources/AppIcon.icns
 ```
 
 The RomFS, the shader libraries and the DLC are APFS clones (`cp -c`) of the build's files when the app is on the same APFS volume, so they take no space of their own; on another volume they are copied, after a check for free space. The app is written as `<app>.partial` and replaces the old one only when it is complete.
+
+The shader folder includes only `.metallib`, `.json` (except `_b_build.json`) and `.tsv` files. Translated `.metal` sources, build records and the compile cache stay in the build folder and do not count toward the free-space check. Copies of many shader files are batched by encoded argument bytes, including the inherited environment, to stay below the system's `ARG_MAX` even in long NSP folder paths.
 
 The packer records the rewritten module files and their tables in `DMModuleFiles`, and rejects a module without its fixups table. Before starting the host, the launcher checks that every recorded file is readable and is a regular file, so losing a binary and its table together still produces the missing-data alert. The alert passes the game name and message as AppleScript arguments, preserving quotes and backslashes in game names.
 
