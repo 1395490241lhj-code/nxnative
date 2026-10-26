@@ -37,7 +37,7 @@ jobs:
         run: |
           mkdir -p logs
           make -C dm/host/tests GAME="$GAME" -j3 run 2>&1 | tee logs/host-tests.log
-      - name: ThreadSanitizer (audio and guest memory)
+      - name: ThreadSanitizer (audio, HID and guest memory)
         run: |
           make -C dm/host/tests GAME="$GAME" -j3 tsan memory-tsan 2>&1 | tee logs/tsan.log
       - name: CPU texture layout and deswizzle tests
