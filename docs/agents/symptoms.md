@@ -65,6 +65,7 @@ One line per symptom in the [subsystem references](../reference/): what you see 
 
 ## Threads
 
+- a parent returns from `StartThread` before a newly runnable higher-priority child pinned to its core finishes its work (deterministic regression, not attributed to a game failure). → [Starting a higher-priority thread on the caller's core](../reference/threads.md#starting-a-higher-priority-thread-on-the-callers-core)
 - per-core job queues never drained. → [Core mask changes move the ideal core into the new mask](../reference/threads.md#core-mask-changes-move-the-ideal-core-into-the-new-mask)
 - crash indexing a per-core table with a huge offset (index −2). → [Ideal core −2 resolves to the process default core](../reference/threads.md#ideal-core-2-resolves-to-the-process-default-core)
 - the main thread waits forever on an event right after `nnMain` starts, with only three or four threads created; `DM_THR=1` shows no `CreateThread` for the thread it waits on. → [Free thread count (`svcGetInfo` type 24)](../reference/threads.md#free-thread-count-svcgetinfo-type-24)
