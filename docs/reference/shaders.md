@@ -727,6 +727,14 @@ shader on a GPU.
 - **Found on:** [The Legend of Zelda: Breath of the Wild](../../dm/games/01007EF00011E000/README.md#found-on-this-game), during review of its offline archive path with synthetic libraries and pair lists; no new gameplay or iPhone run.
 - **Check:** `dm/tools/tests/test_pso_offline.py` changes vertex and fragment library bytes without changing entries or stamps, and exercises the all-constant plan. `t_pso_bundle` rejects bare headers, truncated archives, malformed load commands and out-of-range universal slices, accepts real offline and serialized archives, and rejects zero-probe coverage.
 
+### Metal's build folders left by pipeline archive flushes
+
+- **Symptom:** the user cache folder (`getconf DARWIN_USER_CACHE_DIR`, then `com.apple.gpuarchiver/`) fills with `gpuarchiver-*` folders of 0.3–5 MB each, one per pipeline archive flush, and they stay after the game exits: 456 folders, 2.5 GB, on one Mac after two days of NVN game runs. On iOS they stay in the app's own cache folder.
+- **Cause:** the Metal 4 serializer (`MTL4PipelineDataSetSerializer`) makes a build folder for the captures between two flushes: at the first compile it captures, or, for bases taken again from lookup archives (compaction), during the flush. No flush, release or exit removes the folder. Nothing reads it once its flush has written the archive file: a probe that removed each folder after its flush took every pipeline from the files again. The process keeps no file open in it, and on the Mac the folder is shared by all of the user's programs.
+- **Fix:** `nvn_mtl.m` (`ga_capture`, `ga_flushed`, `ga_exit`): the first capture after a flush lists the folder before and after its compile and takes the one folder that appeared as its own; the flush removes it once its file is written, together with the one folder the flush made when it held recaptures; exit removes the folder of captures no flush wrote. When more than one folder appeared in that window (another program's capture), none is removed. On iOS the start removes the folders earlier runs left. Folders left before this fix stay; they are safe to delete while no game or Metal tool runs.
+- **Found on:** reported by MacNativeGames (`1eff989`, `110e6c6`, Metal 3's `MTLBinaryArchive`, 25 GB overnight on Tears of the Kingdom); reproduced here with the Metal 4 serializer by a probe and on this repository's Mac, no single game identified.
+- **Check:** `t_pso_archive` checks that the first capture finds the folder and the flush removes it; a run of the test leaves no new folder (it left two before the fix, one from compaction and one from captures no flush wrote).
+
 ### Pipeline keys omit unused colour state
 
 - **Symptom:** identical render pipelines compile repeatedly under different keys, lengthening startup prewarm and adding pipeline misses during play.
