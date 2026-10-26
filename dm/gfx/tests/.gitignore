@@ -24,6 +24,10 @@ t_hmap
 t_cover
 t_fuse_check
 t_fuse_check.dSYM/
+t_perf_order
+t_perf_order.dSYM/
+t_perf_order_tsan
+t_perf_order_tsan.dSYM/
 t_cube_placeholder
 t_cube_placeholder.dSYM/
 t_present_crop
