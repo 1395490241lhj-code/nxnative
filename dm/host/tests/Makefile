@@ -16,6 +16,7 @@ run: $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture $(B)/t_oe $(B)/t_fs $(B)/t_fs_
 	TMPDIR="$(abspath $(B))" $(B)/t_fs_case 2>/dev/null
 	$(B)/t_audio
 	$(B)/t_audio_spsc
+	$(B)/t_audren_work
 	$(B)/t_swkbd
 	$(B)/t_altstack
 	$(B)/t_condvar
@@ -34,6 +35,12 @@ run: $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture $(B)/t_oe $(B)/t_fs $(B)/t_fs_
 	$(B)/t_nro
 run: $(B)/t_nro
 run: $(B)/t_system_event
+run: $(B)/t_audren_work
+$(B)/t_audren_work: t_audren_work.c ../hle_audren.c ../hle.h ../dm.h $(GAME_H) | $(B)
+	clang -O1 -g -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_audren_work.c
+.PHONY: audren-work
+audren-work: $(B)/t_audren_work
+	$(B)/t_audren_work
 $(B)/t_system_event: t_system_event.c ../hle_thread.c ../hle_sdk16.c ../hle.h ../dm.h $(GAME_H) | $(B)
 	clang -O1 -g -Wall -Werror -Wno-unused-function -Wno-frame-address -I.. $(GINC) -o $@ t_system_event.c
 .PHONY: system-event
