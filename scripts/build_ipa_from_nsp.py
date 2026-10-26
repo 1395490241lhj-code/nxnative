@@ -435,7 +435,7 @@ def decompress_nsz(nsp_dir, app, fam, keys, env):
     if not todo: return fam
     if importlib.util.find_spec('nsz') is None:
         raise BuildError(f'NSZ / XCZ files need the nsz tool in the current Python ({sys.executable}): pip install nsz')
-    out = nsp_dir / f'{app:016X}_build' / 'nsp'; logs, tmp = out.parent / 'logs', out / 'partial'
+    out = nsp_dir.absolute() / f'{app:016X}_build' / 'nsp'; logs, tmp = out.parent / 'logs', out / 'partial'
     PROG.plan(1); PROG.stage('decompress NSZ', done=0, total=len(todo))
     conv, made = {}, 0
     for i, p in enumerate(todo):
@@ -446,7 +446,9 @@ def decompress_nsz(nsp_dir, app, fam, keys, env):
             rmtree(tmp); tmp.mkdir(parents=True); rmtree(dst); keyfile.unlink(missing_ok=True)
             log = logs / f'nsz_{p.stem}.log'
             try:
-                run([sys.executable, '-c', NSZ_MAIN, '-D', '--keys', keys, '-o', tmp, p], log, env=env)
+                # nsz 4.6.1 loads keys.txt beside argv[0] at import time; with argv[0] = 'nsz' that is cwd. That release has no --keys option.
+                (tmp / 'keys.txt').symlink_to(keys.resolve())
+                run([sys.executable, '-c', NSZ_MAIN, '-D', '-o', tmp, p.resolve()], log, env=env, cwd=tmp)
                 if not (tmp / dst.name).is_file(): raise BuildError(f'nsz made no {dst.name} (full output: {log})')
                 (tmp / dst.name).rename(dst)
             finally: rmtree(tmp)
