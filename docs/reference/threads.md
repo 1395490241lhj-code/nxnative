@@ -4,6 +4,14 @@ Guest threads, their synchronization and how the host schedules them. Each entry
 
 ## Thread creation and cores
 
+### Starting a higher-priority thread on the caller's core
+
+- **Symptom:** a parent returns from `StartThread` before a newly runnable higher-priority child pinned to its core finishes its work (deterministic regression, not attributed to a game failure).
+- **Cause:** `StartThread` signalled the child's pthread but did not request the priority handoff already used when waking a waiter. Atmosphère's [`KThread::Run`](https://github.com/Atmosphere-NX/Atmosphere/blob/master/libraries/libmesosphere/source/kern_k_thread.cpp) makes the child runnable; scheduler priority rules then apply. It does not promise that an equal-priority or other-core child has entered its function before the call returns.
+- **Fix:** `note_runnable` records the same handoff for starts and wakes (`hle_thread.c`). No unconditional child-entry handshake or timeout.
+- **Check:** `make -C dm/host/tests GAME=010038B015560000 preempt` delays the child's host dispatch by 1 ms and 20 ms. With `DM_PREEMPT=0`, both delayed starts failed before the fix. Afterward both `DM_PREEMPT=0` and `1` pass; the broader mode already supplied the handoff before this correction. Equal-priority, other-core, migratable, host-helper, suspended and host-GPU-work children do not hold up the caller.
+- **Found on:** the threading audit of [FINAL FANTASY TACTICS](../../dm/games/010038B015560000/README.md#threads); its affected workers are lower priority and initially migratable, so this correction does not remove its local wake cut.
+
 ### Core mask changes move the ideal core into the new mask
 
 - **Symptom:** per-core job queues never drained.
